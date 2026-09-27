@@ -422,6 +422,7 @@ from pydantic import BaseModel, Field, HttpUrl
 
 DeploymentMode = Literal["api", "open_weight", "compare"]
 
+
 class Constraints(BaseModel):
     task_family: Literal["text", "speech", "vision"]
     task_description: str
@@ -432,21 +433,23 @@ class Constraints(BaseModel):
     gpu_vram_gb: float | None = None
     cpu_only: bool = False
     needs_finetuning: bool = False
-    licence_policy: list[str] = []          # e.g. ["apache-2.0", "mit"]
+    licence_policy: list[str] = []  # e.g. ["apache-2.0", "mit"]
     # API
-    monthly_volume: str | None = None       # e.g. "20000 audio minutes"
+    monthly_volume: str | None = None  # e.g. "20000 audio minutes"
     monthly_budget_usd: float | None = None
     data_can_leave_org: bool | None = None
     region_requirement: str | None = None
     # shared
     max_latency_ms: int | None = None
 
+
 class Source(BaseModel):
     url: HttpUrl
     retrieved_at: datetime
 
+
 class OpenWeightCandidate(BaseModel):
-    repo_id: str                            # must resolve on the Hub
+    repo_id: str  # must resolve on the Hub
     licence: str
     est_vram_gb: float
     precision: Literal["fp32", "fp16", "bf16", "int8", "int4"]
@@ -455,16 +458,18 @@ class OpenWeightCandidate(BaseModel):
     reasons: list[str]
     sources: list[Source]
 
+
 class ApiCandidate(BaseModel):
     provider: str
-    model_id: str                           # must resolve in provider catalogue/docs
-    pricing_summary: str                    # e.g. "$X per 1M input tokens"
+    model_id: str  # must resolve in provider catalogue/docs
+    pricing_summary: str  # e.g. "$X per 1M input tokens"
     est_monthly_cost_usd: float | None
-    limits: list[str]                       # context, file length, rate limits
+    limits: list[str]  # context, file length, rate limits
     data_policy_notes: list[str]
     fit_score: float = Field(ge=0, le=1)
     reasons: list[str]
     sources: list[Source]
+
 
 class DatasetCandidate(BaseModel):
     repo_id: str
@@ -476,19 +481,21 @@ class DatasetCandidate(BaseModel):
     sample_rows: list[dict]
     reasons: list[str]
 
+
 class VerificationResult(BaseModel):
     target: Literal["api", "open_weight"]
     model_ref: str
     dataset_repo_id: str
     sample_size: int
-    metric_name: str                        # e.g. "wer", "accuracy", "f1"
+    metric_name: str  # e.g. "wer", "accuracy", "f1"
     metric_value: float
     avg_latency_ms: float
-    peak_memory_gb: float | None = None     # open-weight
+    peak_memory_gb: float | None = None  # open-weight
     cost_for_sample_usd: float | None = None  # API
     seed: int
     passed: bool
-    skipped_reason: str | None = None       # e.g. "no API key provided"
+    skipped_reason: str | None = None  # e.g. "no API key provided"
+
 
 class DecisionRow(BaseModel):
     option: str
@@ -497,6 +504,7 @@ class DecisionRow(BaseModel):
     privacy: str
     setup_effort: Literal["low", "medium", "high"]
     maintenance: Literal["low", "medium", "high"]
+
 
 class Blueprint(BaseModel):
     constraints: Constraints
@@ -586,8 +594,14 @@ Exact model IDs are chosen from the live `GET /api/v1/models` catalogue (must su
 ### 12.4 Client configuration (sketch)
 
 ```python
-primary = ChatOpenAI(base_url=settings.openrouter_base_url, api_key=..., model=settings.llm_model_strong)
-fallback = ChatOpenAI(base_url=f"{settings.ollama_base_url}/v1", api_key="ollama", model=settings.ollama_model)
+primary = ChatOpenAI(
+    base_url=settings.openrouter_base_url, api_key=..., model=settings.llm_model_strong
+)
+fallback = ChatOpenAI(
+    base_url=f"{settings.ollama_base_url}/v1",
+    api_key=settings.ollama_api_key,
+    model=settings.ollama_model,
+)
 llm = primary.with_fallbacks([fallback])
 ```
 
