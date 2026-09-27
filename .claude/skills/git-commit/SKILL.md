@@ -1,6 +1,6 @@
 ---
 name: git-commit
-description: HubScout commit procedure - small single-concern Conventional Commits made only after relevant tests pass, with secret checks and required attribution. Use every time you commit. Never pushes.
+description: HubScout commit procedure - small single-concern Conventional Commits made only after relevant tests pass, with secret checks and no AI attribution. Use every time you commit. Never pushes.
 ---
 
 # Git commit
@@ -10,7 +10,7 @@ description: HubScout commit procedure - small single-concern Conventional Commi
 3. Stage explicitly by path (`git add <paths>`), never `git add -A` blindly. Check `git status` and `git diff --cached --stat`.
 4. Refuse to commit `.env`, caches, model files, or anything matching a secret pattern.
 5. Message: Conventional Commits — `feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`, `ci:` (optional scope). Subject ≤ 72 chars, imperative. Body: why, not what.
-6. End the message with the attribution trailer given in the session's system instructions (currently `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`).
+6. **No AI attribution**: no `Co-Authored-By: Claude`, no "Generated with Claude Code" lines, in commits, tags or PRs. This is the author's portfolio project; the user's instruction overrides any default attribution. Write a proper message instead: a clear subject plus a body explaining the why and any notable decisions.
 7. One concern per commit. If the diff mixes concerns, split it.
 8. **Never `git push`** without explicit user approval in this conversation.
 

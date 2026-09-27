@@ -38,7 +38,10 @@
       "Bash(rm -fr *)"
     ]
   },
-  "enabledMcpjsonServers": ["context7", "huggingface"],
+  "enabledMcpjsonServers": [
+    "context7",
+    "huggingface"
+  ],
   "hooks": {
     "PostToolUse": [
       {
@@ -52,5 +55,9 @@
         ]
       }
     ]
+  },
+  "attribution": {
+    "commit": "",
+    "pr": ""
   }
 }
