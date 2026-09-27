@@ -198,6 +198,16 @@ class PolicySettings(_Group):
     default_deployment_mode: DeploymentModeSetting = "ask"
     max_critic_loops: int = Field(default=2, ge=0, le=5)
     scout_concurrency: int = Field(default=3, gt=0)
+    # Clarify/plan loops: how many times the graph may re-ask before using defaults.
+    max_clarify_rounds: int = Field(default=2, ge=0, le=5)
+    max_plan_revisions: int = Field(default=2, ge=0, le=5)
+    # Open-weight scout: tool-calling rounds with the HF MCP server, and candidates kept.
+    scout_max_tool_rounds: int = Field(default=4, gt=0, le=10)
+    max_candidates: int = Field(default=5, gt=0, le=10)
+    # VRAM estimate = params x bytes-per-param x overhead (activations, KV cache, runtime).
+    vram_overhead_factor: float = Field(default=1.2, ge=1.0)
+    # CPU-only users: largest model footprint (GB) considered practical in system RAM.
+    cpu_max_model_gb: float = Field(default=16.0, gt=0)
 
     @field_validator("licence_allowlist", mode="before")
     @classmethod
