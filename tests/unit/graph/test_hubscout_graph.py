@@ -175,3 +175,35 @@ async def test_clarifier_stops_asking_after_max_rounds(rounds: int) -> None:
     state = (await graph.aget_state(thread())).values
     assert state["constraints"].cpu_only is True
     assert len(state["assumptions"]) == 4
+
+
+async def test_empty_resume_re_asks_without_using_a_round() -> None:
+    partial = FULL_DRAFT.model_copy(update={"commercial_use": None})
+    llm = ScriptedLlm(structured={ConstraintDraft: [partial, FULL_DRAFT], ResearchPlan: [PLAN]})
+    graph = build_graph(make_deps(llm, HUB, []), checkpointer=InMemorySaver())
+
+    await graph.ainvoke({"request": REQUEST}, thread())
+    result = await graph.ainvoke(Command(resume=""), thread())  # Studio's default ""
+
+    value = interrupt_value(result)
+    assert value["type"] == "clarification"
+    assert "empty" in value["error"]
+    assert llm.calls == ["strong:ConstraintDraft"]  # no extra LLM call for the empty answer
+
+    result = await graph.ainvoke(Command(resume="yes, commercial"), thread())
+    assert interrupt_value(result)["type"] == "plan_approval"
+    state = (await graph.aget_state(thread())).values
+    assert state["clarify_rounds"] == 1
+    assert state["clarification_log"][0].endswith("A: yes, commercial")
+
+
+async def test_empty_plan_review_re_asks() -> None:
+    llm = ScriptedLlm(structured={ConstraintDraft: [FULL_DRAFT], ResearchPlan: [PLAN]})
+    graph = build_graph(make_deps(llm, HUB, []), checkpointer=InMemorySaver())
+
+    await graph.ainvoke({"request": REQUEST}, thread())
+    result = await graph.ainvoke(Command(resume="  "), thread())
+
+    assert interrupt_value(result)["type"] == "plan_approval"
+    assert "empty" in interrupt_value(result)["error"]
+    assert llm.calls.count("strong:ResearchPlan") == 1

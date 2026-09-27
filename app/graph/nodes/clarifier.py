@@ -7,6 +7,7 @@ Two nodes so that resuming an interrupt never re-runs an LLM call:
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -15,7 +16,7 @@ from langgraph.types import interrupt
 
 from app.graph import prompts
 from app.graph.deps import Deps
-from app.graph.state import HubScoutState, as_text
+from app.graph.state import HubScoutState, as_text, ask_until_answered
 from app.graph.usage import ModelUsageRecorder
 from app.schemas import ConstraintDraft, Constraints
 
@@ -23,6 +24,22 @@ Q_MODE = "How do you want to run the model: hosted API, self-hosted open-weight,
 Q_COMMERCIAL = "Is this for commercial use (yes/no)?"
 Q_TASK = "Is the task about text, speech, or vision?"
 Q_HARDWARE = "What hardware will run the model? For example '16 GB GPU' or 'CPU only'."
+
+
+_FAMILY_KEYWORDS: list[tuple[str, re.Pattern[str]]] = [
+    ("speech", re.compile(r"speech|audio|\basr\b|transcri|voice|spoken|call recording|tts")),
+    ("vision", re.compile(r"image|photo|video|vision|picture|object detection|\bocr\b|camera")),
+    ("text", re.compile(r"\btext\b|ticket|document|sentiment|classif|summar|translat|chat|email")),
+]
+
+
+def infer_task_family(text: str) -> str | None:
+    """Deterministic backup when the LLM leaves task_family empty; first match wins."""
+    lowered = text.lower()
+    for family, pattern in _FAMILY_KEYWORDS:
+        if pattern.search(lowered):
+            return family
+    return None
 
 
 def missing_questions(draft: ConstraintDraft) -> list[str]:
@@ -88,6 +105,12 @@ def make_clarify_node(deps: Deps) -> Any:
         draft: ConstraintDraft = await llm.ainvoke(
             [SystemMessage(prompts.CLARIFIER), HumanMessage(convo)], config
         )
+        # Only the user's own words: the log also contains our questions ("text, speech...").
+        user_text = " ".join(
+            [state["request"], *(e.split("\nA: ", 1)[-1] for e in log if "\nA: " in e)]
+        )
+        if draft.task_family is None and (family := infer_task_family(user_text)):
+            draft = draft.model_copy(update={"task_family": family})
         questions = missing_questions(draft)
         rounds = state.get("clarify_rounds", 0)
         update: dict[str, Any] = {"draft": draft, "models_used": recorder.models}
@@ -108,12 +131,14 @@ def make_clarify_node(deps: Deps) -> Any:
 
 def ask_user(state: HubScoutState) -> dict[str, Any]:
     questions = state.get("pending_questions", [])
-    answer = interrupt(
+    answer = ask_until_answered(
         {
             "type": "clarification",
             "questions": questions,
-            "how_to_answer": "Resume with one text answer covering all questions.",
-        }
+            "how_to_answer": "Answer all questions in one line inside the quotes of the Resume "
+            'box, e.g. "commercial, speech, 16 GB GPU", then click Resume.',
+        },
+        interrupt,
     )
     entry = "Q: " + " / ".join(questions) + "\nA: " + as_text(answer)
     return {

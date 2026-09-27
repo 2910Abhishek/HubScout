@@ -10,7 +10,7 @@ from langgraph.types import interrupt
 
 from app.graph import prompts
 from app.graph.deps import Deps
-from app.graph.state import HubScoutState, as_text
+from app.graph.state import HubScoutState, as_text, ask_until_answered
 from app.graph.usage import ModelUsageRecorder
 from app.schemas import PlanReview, ResearchPlan
 
@@ -48,13 +48,14 @@ def make_planner_node(deps: Deps) -> Any:
 def make_review_node(deps: Deps) -> Any:
     def review_plan(state: HubScoutState) -> dict[str, Any]:
         revisions = state.get("plan_revisions", 0)
-        answer = interrupt(
+        answer = ask_until_answered(
             {
                 "type": "plan_approval",
                 "plan": state["plan"].model_dump(),
-                "how_to_answer": 'Resume with "yes" to approve, or with feedback text to revise '
-                '(or {"approved": false, "feedback": "..."}).',
-            }
+                "how_to_answer": 'Type "yes" inside the quotes of the Resume box to approve, or '
+                "type feedback to get a revised plan, then click Resume.",
+            },
+            interrupt,
         )
         review = parse_review(answer)
         if review.approved or revisions >= deps.settings.policy.max_plan_revisions:

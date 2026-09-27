@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import operator
+from collections.abc import Callable
 from typing import Annotated, Any
 
 from langchain_core.messages import AnyMessage
@@ -18,6 +19,15 @@ from app.schemas import (
     ResearchPlan,
     ScoutCandidate,
 )
+
+
+def unique_merge(left: list[str] | None, right: list[str] | None) -> list[str]:
+    """Reducer: append new items, keep first-seen order, no duplicates."""
+    merged = list(left or [])
+    for item in right or []:
+        if item not in merged:
+            merged.append(item)
+    return merged
 
 
 class InputState(TypedDict):
@@ -48,8 +58,23 @@ class HubScoutState(TypedDict, total=False):
     rejected: list[RejectedCandidate]
     # Output
     blueprint: Blueprint
-    models_used: Annotated[list[str], operator.add]
+    models_used: Annotated[list[str], unique_merge]
     errors: Annotated[list[str], operator.add]
+
+
+def ask_until_answered(payload: dict[str, Any], interrupt_fn: Callable[[Any], Any]) -> Any:
+    """Interrupt until the human sends a non-empty answer.
+
+    Studio's resume box starts as "" — resuming without typing inside the quotes must re-ask,
+    not silently count as an answer. Repeated interrupt() calls in one node are matched to
+    resume values in order, so earlier (empty) answers replay correctly after each resume.
+    """
+    answer = interrupt_fn(payload)
+    while not as_text(answer):
+        answer = interrupt_fn(
+            {**payload, "error": "The answer was empty. Type it inside the quotes, then Resume."}
+        )
+    return answer
 
 
 def as_text(value: Any) -> str:

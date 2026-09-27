@@ -41,8 +41,9 @@ Open: https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024 → grap
    `{"request": "Summarise legal contracts using a hosted API, commercial use."}`
 
 Watch:
-- **Interrupts**: `ask_user` shows `questions`; `review_plan` shows `plan`. Resume with `yes`,
-  or with feedback text to get a revised plan.
+- **Interrupts**: `ask_user` shows `questions`; `review_plan` shows `plan`. To answer, type
+  **inside the quotes** of the Resume box (it starts as `""`), e.g. `"commercial, speech, 16 GB
+  GPU"` or `"yes"`, then click **Resume**. An empty answer is re-asked, not accepted.
 - **State**: `constraints`, `plan`, `scout_messages` (every MCP tool call and result),
   `candidates`, `approved` / `rejected` (with reasons), `blueprint`, `models_used`.
 - **Speed**: about 1-3 minutes per run. If `models_used` shows `qwen3:4b-instruct`, the local
