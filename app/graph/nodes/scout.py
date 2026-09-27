@@ -21,9 +21,12 @@ from app.graph.usage import ModelUsageRecorder
 from app.schemas import ScoutCandidate, ScoutReport
 
 logger = logging.getLogger(__name__)
-MAX_TOOL_CHARS = 6000
-_REPO_ID = re.compile(r"\b([A-Za-z0-9][\w.-]{1,95}/[A-Za-z0-9][\w.-]{1,95})\b")
-_NOT_REPOS = ("huggingface.co", "http", "www.")
+# Keep the tool conversation small: local fallback models have a ~4K-token context on CPU.
+MAX_TOOL_CHARS = 4000
+MAX_SEARCH_RESULTS = 8
+# Repo-like ids, but not dataset tags ("dataset:org/name"), base-model tags or URL fragments.
+_REPO_ID = re.compile(r"(?<![\w:/.-])([A-Za-z0-9][\w.-]{1,95}/[A-Za-z0-9][\w.-]{1,95})\b")
+_NOT_REPOS = ("huggingface.co", "hf.co", "http", "www.")
 
 
 def repo_ids_in_tool_results(messages: list[AnyMessage], limit: int) -> list[ScoutCandidate]:
@@ -60,12 +63,37 @@ async def _run_tool(tools: dict[str, BaseTool], call: dict[str, Any]) -> ToolMes
         return ToolMessage(
             f"Unknown tool {call['name']!r}", tool_call_id=call["id"], status="error"
         )
+    args = dict(call["args"])
+    if call["name"] == "hub_repo_search":
+        args["limit"] = min(int(args.get("limit") or MAX_SEARCH_RESULTS), MAX_SEARCH_RESULTS)
     try:
-        result = await tool.ainvoke(call["args"])
+        result = await tool.ainvoke(args)
     except Exception as exc:  # tool errors go back to the model, not up the graph
         logger.warning("scout tool %s failed: %s", call["name"], exc)
         return ToolMessage(f"Tool error: {exc}", tool_call_id=call["id"], status="error")
     return ToolMessage(_truncate(result), tool_call_id=call["id"], name=call["name"])
+
+
+async def grounded_search(
+    tools: dict[str, BaseTool], hf_task: str, languages: list[str]
+) -> list[AnyMessage]:
+    """Deterministic backup search when the LLM's searches found nothing: top models for the
+    task (and languages), by downloads. Recorded as a normal tool exchange for Studio."""
+    messages: list[AnyMessage] = []
+    for filters in ([hf_task, *languages], [hf_task]) if languages else ([hf_task],):
+        args = {
+            "filters": filters,
+            "sort": "downloads",
+            "limit": MAX_SEARCH_RESULTS,
+            "repo_types": ["model"],
+        }
+        call = {"name": "hub_repo_search", "args": args, "id": f"fallback-{len(messages)}"}
+        messages.append(AIMessage(content="(fallback search by HubScout code)", tool_calls=[call]))
+        result = await _run_tool(tools, call)
+        messages.append(result)
+        if "No repositories found" not in str(result.content) and result.status != "error":
+            break
+    return messages
 
 
 def make_scout_node(deps: Deps) -> Any:
@@ -89,8 +117,14 @@ def make_scout_node(deps: Deps) -> Any:
         recorder = ModelUsageRecorder()
         agent = deps.llm("cheap", tools=tools).with_config(callbacks=[recorder])
 
+        errors: list[str] = []
         for _ in range(policy.scout_max_tool_rounds):
-            reply = await agent.ainvoke(messages, config)
+            try:
+                reply = await agent.ainvoke(messages, config)
+            except Exception as exc:  # degrade: keep whatever the searches found so far
+                logger.warning("scout step failed (%s); continuing with results so far", exc)
+                errors.append(f"scout step failed ({type(exc).__name__}); used results so far")
+                break
             if not isinstance(reply, AIMessage):
                 break
             messages.append(reply)
@@ -99,9 +133,11 @@ def make_scout_node(deps: Deps) -> Any:
             for call in reply.tool_calls:
                 messages.append(await _run_tool(by_name, dict(call)))
 
+        if not repo_ids_in_tool_results(messages, 1):
+            messages.extend(await grounded_search(by_name, plan.hf_task, constraints.languages))
+
         ask = HumanMessage(prompts.SCOUT_REPORT.format(max_candidates=policy.max_candidates))
         reporter = deps.llm("cheap", schema=ScoutReport).with_config(callbacks=[recorder])
-        errors: list[str] = []
         try:
             report: ScoutReport = await reporter.ainvoke([*messages, ask], config)
         except Exception as exc:  # graceful degradation: fall back to parsing tool output
