@@ -29,19 +29,27 @@ Approved plan: `~/.claude/plans/noble-floating-thacker.md` (copy of key decision
 - [x] 5. `app/config.py` (grouped pydantic-settings), slim `.env.example`, `scripts/init_env.sh`,
       `scripts/check_env.py`; `.env.infra` generated
 
-### Waiting on the user
-- Replace the old generated `.env` with the slim one and paste API keys
-  (OPENROUTER_API_KEY, ARTIFICIAL_ANALYSIS_API_KEY, LANGSMITH_API_KEY, HF_TOKEN, TAVILY_API_KEY).
-- Ollama fix: `sudo usermod -d /var/lib/ollama ollama && sudo systemctl restart ollama`
-  (the `ollama` user's home points to a non-existent /usr/share/ollama from an old install).
+### Fast-track POC (user request, 2026-09-27)
+The user asked to skip ahead to a working agent for hands-on learning, so Phase 1's remaining
+steps and a Phase 2 thin slice were combined:
+- [x] 6. Docker Compose (postgres+pgvector, redis, searxng; Langfuse under `observability`) + Makefile
+- [x] 7. `app/llm.py` + Redis rate limiter; Ollama `qwen3:4b-instruct` pulled
+- [x] Schemas, Hub facts client, code-only checks, HF MCP client
+- [x] Graph "hubscout": clarify -> ask_user -> plan -> review_plan -> scout -> check -> aggregate
+- [x] 10. CI workflow
+- [x] Live end-to-end run verified through `langgraph dev` (see docs/phases/POC_README.md)
 
 ### Next
-- [ ] 6. Compose (postgres/pgvector, redis, searxng, langfuse profile) + Makefile
-- [ ] 7. `app/llm.py` + Redis rate limiter; pick and pull the Ollama model
-- [ ] 8. Integration checks (OpenRouter tool + structured output, Ollama fallback, AA key)
-- [ ] 9. Smoke graph + `langgraph.json`; verify with `langgraph dev`
-- [ ] 10. CI workflow
-- [ ] 11. ADRs, phase README, review, merge, tag
+- [ ] 8. Integration tests (`tests/integration/`) for OpenRouter, Ollama fallback, Artificial
+      Analysis, HF MCP (live checks were run by hand so far)
+- [ ] 11. ADRs (OpenRouter+Ollama, Store vs Mem0, Docker sandbox, Redis, Tavily)
+- [ ] code-reviewer pass, merge to main, tag
+- [ ] Phase 2 remainder: Postgres checkpointer outside `langgraph dev`, dataset scout
+- [ ] Phase 3: API path (OpenRouter catalogue + Artificial Analysis), MCP servers, parallel scouts
 
 ## Known issues
-- None yet.
+- Free OpenRouter models are often throttled upstream (HTTP 429); on 2026-09-27 only Nemotron
+  answered, so both strong and cheap tiers use it. Fallback to Ollama works but is slow on CPU.
+- LangGraph warns that Pydantic types in checkpoints are "unregistered"; harmless now, to be
+  addressed with an explicit serializer allowlist when the Postgres checkpointer is added.
+- API and compare modes are not implemented yet (the blueprint says so).
