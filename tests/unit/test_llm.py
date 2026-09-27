@@ -76,7 +76,7 @@ def test_openrouter_model_is_configured_from_settings(settings_with_key: Any) ->
     assert model.openai_api_base == "https://openrouter.ai/api/v1"
     assert model.openai_api_key is not None
     assert model.openai_api_key.get_secret_value() == FAKE_KEY
-    assert model.max_retries == 1
+    assert model.max_retries == 0
     assert model.rate_limiter is limiter
     assert FAKE_KEY not in repr(model)
 
@@ -97,3 +97,35 @@ def test_openrouter_model_requires_key() -> None:
 def test_served_by_reads_response_metadata() -> None:
     assert served_by(AIMessage(content="", response_metadata={"model_name": "a/b"})) == "a/b"
     assert served_by(AIMessage(content="")) == "unknown"
+
+
+class ProseStructured(GenericFakeChatModel):
+    """Structured output that yields None, as when a model replies in prose."""
+
+    def with_structured_output(self, schema: Any, **kwargs: Any) -> Any:
+        from langchain_core.runnables import RunnableLambda
+
+        return RunnableLambda(lambda _: None)
+
+
+class ConstStructured(GenericFakeChatModel):
+    value: Any = None
+
+    def with_structured_output(self, schema: Any, **kwargs: Any) -> Any:
+        from langchain_core.runnables import RunnableLambda
+
+        self.value = kwargs.get("method")
+        return RunnableLambda(lambda _: schema(summary="from fallback"))
+
+
+def test_empty_structured_output_triggers_fallback_and_ollama_uses_json_schema() -> None:
+    from pydantic import BaseModel
+
+    class Out(BaseModel):
+        summary: str
+
+    local = ConstStructured(messages=iter([]))
+    llm = get_llm("strong", schema=Out, primary=ProseStructured(messages=iter([])), fallback=local)
+
+    assert llm.invoke("hi") == Out(summary="from fallback")
+    assert local.value == "json_schema"

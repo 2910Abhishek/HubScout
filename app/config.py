@@ -55,8 +55,9 @@ class OpenRouterSettings(_Group):
     rpm: int = Field(default=20, gt=0)
     rpd: int = Field(default=50, gt=0)
     timeout_s: float = Field(default=60.0, gt=0)
-    # Retries spend the daily quota, so keep them low; the Ollama fallback covers failures.
-    max_retries: int = Field(default=1, ge=0)
+    # Retries spend the daily quota and free models often return upstream 429s; the Ollama
+    # fallback already covers failures, so don't retry.
+    max_retries: int = Field(default=0, ge=0)
     app_title: str = "HubScout"
 
 
@@ -64,13 +65,15 @@ class LlmSettings(_Group):
     """Model ID per tier, chosen from the live OpenRouter catalogue.
 
     Verified on 2026-09-27 to exist and support `tools` + `structured_outputs`. The free
-    lineup changes often; the integration smoke test re-checks these IDs.
+    lineup changes often; the integration smoke test re-checks these IDs. On 2026-09-27 the
+    popular free Qwen/Gemma models returned upstream 429s on every call, so the cheap tier
+    also uses Nemotron until another free tool-calling model is reliably served.
     """
 
     model_config = SettingsConfigDict(env_prefix="LLM_")
 
     model_strong: str = "nvidia/nemotron-3-super-120b-a12b:free"
-    model_cheap: str = "qwen/qwen3.8-27b:free"
+    model_cheap: str = "nvidia/nemotron-3-super-120b-a12b:free"
     # Pinned, never falls back (evaluation judge).
     model_judge: str = "nvidia/nemotron-3-super-120b-a12b:free"
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)

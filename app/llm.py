@@ -18,7 +18,7 @@ from typing import Any, Literal
 
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
 from langchain_core.messages import BaseMessage
-from langchain_core.runnables import Runnable
+from langchain_core.runnables import Runnable, RunnableLambda
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
@@ -29,6 +29,18 @@ from app.rate_limit import RedisRateLimiter
 logger = logging.getLogger(__name__)
 
 StructuredMethod = Literal["function_calling", "json_schema", "json_mode"]
+
+
+class EmptyStructuredOutputError(RuntimeError):
+    """The model answered in prose instead of producing the requested structure."""
+
+
+def _require_parsed(value: Any) -> Any:
+    if value is None:
+        raise EmptyStructuredOutputError("model returned no structured output")
+    return value
+
+
 ToolLike = BaseTool | type[BaseModel] | dict[str, Any]
 
 
@@ -81,7 +93,8 @@ def _shape(
     method: StructuredMethod,
 ) -> Runnable[LanguageModelInput, Any]:
     if schema is not None:
-        return model.with_structured_output(schema, method=method)
+        # A None result (model replied in prose) becomes an error, so fallbacks kick in.
+        return model.with_structured_output(schema, method=method) | RunnableLambda(_require_parsed)
     if tools:
         return model.bind_tools(list(tools))
     return model
@@ -101,8 +114,10 @@ def get_llm(
 
     - `tools`: bind tools (the result is an AIMessage that may contain tool calls).
     - `schema`: return a validated instance of this Pydantic model instead of a message.
-      `function_calling` is the default because every model we pin must support tools,
-      while native JSON-schema support varies between providers.
+      `function_calling` is the default for OpenRouter because every model we pin must
+      support tools, while native JSON-schema support varies between providers. The Ollama
+      branch always uses `json_schema`: Ollama constrains decoding to the schema, which small
+      local models need to answer reliably.
     - `primary` / `fallback`: inject models (tests, or a different provider later).
     """
     if tools and schema is not None:
@@ -118,13 +133,12 @@ def get_llm(
         return _shape(primary, tools, schema, method)
 
     local = fallback or build_ollama_model(cfg)
+    local_shaped = _shape(local, tools, schema, "json_schema")
     if primary is None:
         logger.warning("OPENROUTER_API_KEY not set; tier %r runs on Ollama only", tier)
-        return _shape(local, tools, schema, method)
+        return local_shaped
 
-    return _shape(primary, tools, schema, method).with_fallbacks(
-        [_shape(local, tools, schema, method)]
-    )
+    return _shape(primary, tools, schema, method).with_fallbacks([local_shaped])
 
 
 def served_by(message: BaseMessage) -> str:
