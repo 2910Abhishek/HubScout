@@ -29,6 +29,7 @@ dev = [
     "pre-commit>=4.6,<5",
     "pytest>=9.1,<10",
     "pytest-asyncio>=1.4,<2",
+    "python-dotenv>=1.2,<2",
     "respx>=0.23,<1",
     "ruff>=0.16.9,<0.17",
 ]

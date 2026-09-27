@@ -550,6 +550,7 @@ dev = [
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "python-dotenv" },
     { name = "respx" },
     { name = "ruff" },
 ]
@@ -578,6 +579,7 @@ dev = [
     { name = "pre-commit", specifier = ">=4.6,<5" },
     { name = "pytest", specifier = ">=9.1,<10" },
     { name = "pytest-asyncio", specifier = ">=1.4,<2" },
+    { name = "python-dotenv", specifier = ">=1.2,<2" },
     { name = "respx", specifier = ">=0.23,<1" },
     { name = "ruff", specifier = ">=0.16.9,<0.17" },
 ]
