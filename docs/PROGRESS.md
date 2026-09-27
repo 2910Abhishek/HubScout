@@ -14,6 +14,8 @@ Approved plan: `~/.claude/plans/noble-floating-thacker.md` (copy of key decision
 - `.env` holds only external API keys; non-secret defaults live in `app/config.py`;
   generated local infra secrets live in `.env.infra` (user request).
 - No AI co-author trailers in commits (portfolio project).
+- Web search: Tavily primary, SearXNG fallback. Semantic Scholar dropped (keyless API returns
+  429 constantly; keys need an institutional affiliation). Card v0.4.
 - Ollama model: `qwen3:4b-instruct` (no thinking tokens; fast enough on CPU).
 
 ### Done
@@ -29,7 +31,7 @@ Approved plan: `~/.claude/plans/noble-floating-thacker.md` (copy of key decision
 
 ### Waiting on the user
 - Replace the old generated `.env` with the slim one and paste API keys
-  (OPENROUTER_API_KEY, ARTIFICIAL_ANALYSIS_API_KEY, LANGSMITH_API_KEY, HF_TOKEN).
+  (OPENROUTER_API_KEY, ARTIFICIAL_ANALYSIS_API_KEY, LANGSMITH_API_KEY, HF_TOKEN, TAVILY_API_KEY).
 - Ollama fix: `sudo usermod -d /var/lib/ollama ollama && sudo systemctl restart ollama`
   (the `ollama` user's home points to a non-existent /usr/share/ollama from an old install).
 

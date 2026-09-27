@@ -6,7 +6,7 @@
 |---|---|
 | Project name | HubScout |
 | Document type | Problem definition + system card (model-card style) |
-| Version | 0.3 (learning prototype, production-ready but not deployed) |
+| Version | 0.4 (learning prototype, production-ready but not deployed) |
 | Status | Planning / prototype |
 | LLM access (for HubScout's own agents) | OpenRouter (free models: `openrouter/free` + pinned `:free` IDs) with local Ollama fallback |
 | Deployment modes recommended to users | Hosted API · Open-weight self-hosted · Compare both |
@@ -309,7 +309,7 @@ flowchart LR
     LG <--> HFMCP[HF MCP server]
     LG <--> AX[arxiv-mcp - FastMCP]
     LG <--> MI[ml-insights-mcp - FastMCP]
-    LG <--> WSR[Web search: SearXNG]
+    LG <--> WSR[Web search: Tavily, SearXNG fallback]
     LG <--> CAT[Provider catalogues + benchmark APIs]
     LG <-->|A2A| VER[Verifier service - ADK]
     VER --> SB[Hardened Docker sandbox]
@@ -340,8 +340,8 @@ flowchart LR
 | **Clarifier** | Strong | All | Normalised `Constraints` incl. deployment mode | Memory store |
 | **Planner** | Strong | All | `ResearchPlan` | — |
 | **Supervisor** | Strong | All | Scout assignments | LangGraph `Send` |
-| **Paper scout** | Cheap | All | Current approaches, key papers | arxiv-mcp, Semantic Scholar, retrieval |
-| **Web scout** | Cheap | All | Recent announcements, vendor docs, pricing pages, blog posts (as leads, never final truth) | SearXNG, page fetch |
+| **Paper scout** | Cheap | All | Current approaches, key papers | arxiv-mcp, HF Papers (via HF MCP), retrieval |
+| **Web scout** | Cheap | All | Recent announcements, vendor docs, pricing pages, blog posts (as leads, never final truth) | Tavily (SearXNG fallback), page fetch |
 | **Open-weight model scout** | Cheap | Open-weight, Compare | Ranked Hub candidates | HF MCP, ml-insights-mcp |
 | **API model scout** | Cheap | API, Compare | Ranked API candidates with pricing, limits, capabilities | Provider catalogues (e.g. OpenRouter `/api/v1/models`), Artificial Analysis API, web scout leads |
 | **Dataset scout** | Cheap | All | Datasets with licence/size/splits/sample rows | HF MCP, `datasets` streaming |
@@ -540,9 +540,9 @@ A schema validator enforces mode consistency: `api` runs must have `api_pick` an
 | Agent-to-agent | **A2A (a2a-sdk)** | Supervisor delegates to verifier | Standard, framework-neutral |
 | MCP (consume) | **Official Hugging Face MCP server** | Search models, datasets, papers, repo details | Authoritative open-weight data |
 | MCP (build) | **FastMCP**: `arxiv-mcp`, `ml-insights-mcp` | Papers; VRAM estimator, licence rules, API cost calculator, break-even, trends | Learn to build MCP servers; reusable tools |
-| Web search | **SearXNG** (self-hosted) | Current announcements, vendor docs, pricing pages | Fresh leads; free and self-hostable |
+| Web search | **Tavily** (primary) + **SearXNG** (self-hosted fallback) | Current announcements, vendor docs, pricing pages | Tavily returns agent-ready results with page content (fewer LLM calls); SearXNG is free and unlimited when Tavily credits run out |
 | API catalogues & benchmarks | **OpenRouter models API**, **Artificial Analysis free API**, vendor docs | API model metadata, pricing, capabilities, independent benchmarks | Structured, current data for the API path |
-| Other data sources | huggingface_hub, datasets (streaming), arXiv, Semantic Scholar, GitHub, PyPI JSON API | Metadata, samples, papers, library info, package existence | Free, live, official |
+| Other data sources | huggingface_hub, datasets (streaming), arXiv, HF Papers, GitHub, PyPI JSON API | Metadata, samples, papers, library info, package existence | Free, live, official |
 | Retrieval | Postgres + **pgvector**, **BM25**, **bge-m3**, **bge-reranker** | Hybrid search over papers, cards, blueprints | One DB; multilingual embeddings run locally (no quota) |
 | Short-term memory | LangGraph **Postgres checkpointer** | Session state, resume after crash | Durable, built in |
 | Long-term memory | LangGraph **Store** (Postgres) | Profiles, preferences, past blueprints | Namespaced, searchable |
@@ -627,10 +627,10 @@ The ADK verifier reaches the same OpenRouter models through ADK's LiteLLM model 
 | Artificial Analysis API | Free tier with key and attribution | Independent LLM benchmarks, speed and pricing; speech-to-text WER; TTS and image arenas | API (and open models served via APIs) |
 | Vendor docs & pricing pages | Web scout + page fetch | Specialised APIs (e.g. speech, vision), data policies, regions | API |
 | arXiv | arXiv API via `arxiv-mcp` | Papers | All |
-| Semantic Scholar | Public API | Citations, related work | All |
+| HF Papers | HF MCP server | Community-curated papers linked to models and datasets | All |
 | GitHub | REST API | Library activity, releases | All |
 | PyPI | JSON API | Package existence and versions | All |
-| Web search | SearXNG | Recent announcements, comparisons (leads only) | All |
+| Web search | Tavily (primary), SearXNG (fallback) | Recent announcements, comparisons (leads only) | All |
 | Public leaderboards | Dated snapshots | Evaluation (leaderboard agreement) | All |
 
 All fetched text (model cards, READMEs, abstracts, web pages, vendor docs) is **untrusted input** and passes through the injection screen (§15). Pricing and terms data carry a retrieval timestamp because they change often.
@@ -783,7 +783,7 @@ GitHub Actions runs unit tests on every PR plus a small eval subset (about 10 go
 - **Tracing**: Langfuse callback on every LangGraph node; metadata includes run ID, agent, deployment mode, the model actually used (primary or fallback), tokens, latency.
 - **Dashboards**: per-agent latency, failure rate, tokens per blueprint, candidates rejected by the checker (with reasons).
 - **Logging**: structured JSON; secrets and user keys redacted.
-- **Health checks**: `/health` and `/ready` check Postgres, Redis, OpenRouter reachability, SearXNG and the verifier's A2A agent card.
+- **Health checks**: `/health` and `/ready` check Postgres, Redis, OpenRouter reachability, the search backend and the verifier's A2A agent card.
 - **Failure handling**: retries with backoff; graceful degradation (e.g. deliver an unverified blueprint, clearly marked, if verification fails).
 
 ---
@@ -812,7 +812,7 @@ hubscout/
 │   │                              # checker, cost_analyst, aggregator, critic
 │   ├── tools/
 │   │   ├── registries/            # hub.py, openrouter.py, artificial_analysis.py, pypi.py
-│   │   ├── search.py              # SearXNG
+│   │   ├── search.py              # Tavily + SearXNG fallback
 │   │   ├── checks/                # existence, licence, vram, budget, mode
 │   │   └── mcp_clients.py
 │   ├── retrieval/
@@ -849,7 +849,7 @@ All settings are loaded by `app/config.py` (pydantic-settings) in three layers:
 
 1. **Defaults in `app/config.py`**: every non-secret setting (model IDs, URLs, limits, policy).
 2. **`.env.infra`**: local infrastructure secrets (Postgres, SearXNG, Langfuse, API auth), generated by `scripts/init_env.sh`, never edited by hand.
-3. **`.env`**: the user's external API keys only (OpenRouter, Artificial Analysis, LangSmith, Hugging Face, optional GitHub/Semantic Scholar); template in `.env.example`.
+3. **`.env`**: the user's external API keys only (OpenRouter, Artificial Analysis, LangSmith, Hugging Face, Tavily, optional GitHub); template in `.env.example`.
 
 Environment variables override any layer. Both env files are git-ignored.
 
@@ -896,3 +896,4 @@ Environment variables override any layer. Both env files are git-ignored.
 | 0.1 | 2026-09-23 | Initial problem definition and system card; OmniRoute adopted as LLM gateway |
 | 0.2 | 2026-09-24 | Reframed problem: search-enabled assistants acknowledged as the main baseline, with a dated evidence base (§3). Added deployment modes (API / open-weight / compare) as a first-class decision with mode-specific clarifier questions, scouts, cost analysis, verification and schema. Added web scout, API model scout, programmatic checker, cost & deployment analyst, secure user-key handling, slopsquatting checks, and search-enabled assistant baseline (B2) in evaluation |
 | 0.3 | 2026-09-27 | Final stack settled (see ADRs in `docs/decisions/`): OmniRoute replaced by OpenRouter free models + Ollama fallback; E2B replaced by a hardened Docker sandbox; Python pinned to 3.12; Tavily dropped (SearXNG only); Streamlit only; roadmap reorganised into 6 phases; configuration moved to `.env.example`; added dev tooling (Alembic, MCP Inspector, Trivy, SBOM) |
+| 0.4 | 2026-09-27 | Semantic Scholar dropped (keyless API is rate-limited to unusable; keys require an institutional affiliation); paper scout uses arXiv + HF Papers. Tavily added as the primary web-search backend with self-hosted SearXNG as fallback |

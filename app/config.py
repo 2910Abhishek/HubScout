@@ -106,8 +106,6 @@ class DataSourceSettings(_Group):
     hf_mcp_url: str = "https://huggingface.co/mcp"
     artificial_analysis_api_key: SecretStr | None = None
     artificial_analysis_base_url: str = "https://artificialanalysis.ai/api/v2"
-    semantic_scholar_api_key: SecretStr | None = None
-    semantic_scholar_base_url: str = "https://api.semanticscholar.org/graph/v1"
     github_token: SecretStr | None = None
     github_api_url: str = "https://api.github.com"
     pypi_base_url: str = "https://pypi.org/pypi"
@@ -116,8 +114,18 @@ class DataSourceSettings(_Group):
 
 
 class SearchSettings(_Group):
-    """Self-hosted SearXNG web search (results are leads, never truth)."""
+    """Web search for the web scout. Results are leads, never truth.
 
+    Tavily is the primary backend (agent-oriented results with extracted page content);
+    self-hosted SearXNG is the free, unlimited fallback when the Tavily key is missing or its
+    monthly credits (free tier: 1,000; basic search = 1, advanced = 2) run out.
+    """
+
+    search_backend: Literal["tavily", "searxng"] = "tavily"
+    tavily_api_key: SecretStr | None = None
+    tavily_base_url: str = "https://api.tavily.com"
+    tavily_search_depth: Literal["basic", "advanced"] = "basic"
+    tavily_max_results: int = Field(default=5, gt=0, le=20)
     searxng_url: str = "http://localhost:8888"
 
 

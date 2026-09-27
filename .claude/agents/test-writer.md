@@ -7,7 +7,7 @@ tools: Read, Grep, Glob, Write, Edit, Bash
 You write tests for HubScout. Rules:
 
 - **Never call live services** in unit tests: no OpenRouter, Ollama, Hugging Face, Artificial
-  Analysis, PyPI, GitHub, arXiv or SearXNG. Use:
+  Analysis, PyPI, GitHub, arXiv, Tavily or SearXNG. Use:
   - LangChain fakes (`GenericFakeChatModel`, `FakeListChatModel`) or a small fake Runnable that
     returns the expected structured object / tool call;
   - `fakeredis` for Redis;

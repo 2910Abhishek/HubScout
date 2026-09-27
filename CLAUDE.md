@@ -22,7 +22,7 @@ Production-ready, never deployed.
 ## Stack (do not add/remove/swap without asking)
 Python 3.12 (uv) · LangGraph + Studio · LangChain (ChatOpenAI only) · OpenRouter free models +
 Ollama fallback · Google ADK + a2a-sdk · HF MCP server · FastMCP (arxiv-mcp, ml-insights-mcp) ·
-SearXNG · OpenRouter models API + Artificial Analysis API · Postgres + pgvector, BM25, bge-m3,
+Tavily + SearXNG fallback · OpenRouter models API + Artificial Analysis API · Postgres + pgvector, BM25, bge-m3,
 bge-reranker · LangGraph Postgres checkpointer + Store · Pydantic v2 · hardened Docker sandbox ·
 transformers/torch/evaluate · DeepEval + pytest · Langfuse (self-hosted) · FastAPI + SSE ·
 Streamlit · Redis · Docker Compose · GitHub Actions · ruff, mypy, pre-commit, pip-audit, bandit,

@@ -20,6 +20,8 @@ def test_works_with_no_env_at_all() -> None:
     assert settings.llm.model_strong
     assert settings.ollama.openai_base_url == "http://localhost:11434/v1"
     assert settings.policy.default_deployment_mode == "ask"
+    assert settings.search.search_backend == "tavily"
+    assert settings.search.tavily_api_key is None
     assert settings.policy.licence_allowlist == [
         "apache-2.0",
         "mit",
@@ -69,6 +71,8 @@ def test_empty_values_fall_back_to_defaults(monkeypatch: pytest.MonkeyPatch) -> 
         ("DEFAULT_DEPLOYMENT_MODE", "on_prem"),
         ("MAX_CRITIC_LOOPS", "99"),
         ("API_PORT", "70000"),
+        ("SEARCH_BACKEND", "bing"),
+        ("TAVILY_MAX_RESULTS", "50"),
     ],
 )
 def test_invalid_values_rejected(monkeypatch: pytest.MonkeyPatch, name: str, value: str) -> None:
