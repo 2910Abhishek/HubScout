@@ -16,6 +16,23 @@ from huggingface_hub.errors import GatedRepoError, HFValidationError, Repository
 from app.config import Settings
 
 _EXPAND: list[Any] = ["safetensors", "cardData", "pipeline_tag", "gated", "tags", "downloads"]
+# Full-model weight files, in order of preference (count one format only).
+_WEIGHT_SUFFIXES = (".safetensors", ".bin", ".pt", ".pth")
+_NOT_WEIGHTS = ("adapter_model", "optimizer", "training_args", "scheduler", "rng_state")
+ASSUMED_BYTES_PER_PARAM = 2.0  # 16-bit weights; overestimates (safe side) for fp32 files
+
+
+def estimate_params_from_files(files: dict[str, int]) -> int | None:
+    """Rough parameter count from weight-file sizes, for repos without safetensors metadata."""
+    for suffix in _WEIGHT_SUFFIXES:
+        sizes = [
+            size
+            for name, size in files.items()
+            if name.endswith(suffix) and not any(bad in name for bad in _NOT_WEIGHTS)
+        ]
+        if sizes:
+            return int(sum(sizes) / ASSUMED_BYTES_PER_PARAM)
+    return None
 
 
 @dataclass(frozen=True)
@@ -31,6 +48,8 @@ class ModelFacts:
     languages: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     downloads: int = 0
+    params_estimated: bool = False
+    adapter_only: bool = False
 
     @property
     def requires_remote_code(self) -> bool:
@@ -73,6 +92,17 @@ class HubClient:
         card: dict[str, Any] = info.card_data.to_dict() if info.card_data else {}  # type: ignore[no-untyped-call]
         licences = _as_list(card.get("license"))
         st = info.safetensors
+        params = st.total if st else None
+        estimated = adapter_only = False
+        if params is None:
+            files = self._file_sizes(repo_id)
+            names = set(files)
+            adapter_only = any(n.startswith("adapter_") for n in names) and not any(
+                n.endswith(_WEIGHT_SUFFIXES) and not n.startswith("adapter_") for n in names
+            )
+            if not adapter_only:
+                params = estimate_params_from_files(files)
+                estimated = params is not None
         return ModelFacts(
             repo_id=info.id or repo_id,
             exists=True,
@@ -80,12 +110,18 @@ class HubClient:
             licence=licences[0] if licences else None,
             gated=bool(info.gated),
             pipeline_tag=info.pipeline_tag,
-            params=st.total if st else None,
+            params=params,
+            params_estimated=estimated,
+            adapter_only=adapter_only,
             dtypes=dict(st.parameters) if st else {},
             languages=_as_list(card.get("language")),
             tags=list(info.tags or []),
             downloads=info.downloads or 0,
         )
+
+    def _file_sizes(self, repo_id: str) -> dict[str, int]:
+        info = self._api.model_info(repo_id, files_metadata=True, timeout=self._timeout)
+        return {s.rfilename: s.size or 0 for s in info.siblings or []}
 
     async def model_facts(self, repo_id: str) -> ModelFacts:
         # huggingface_hub is synchronous; keep the event loop free.

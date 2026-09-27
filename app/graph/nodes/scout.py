@@ -7,6 +7,7 @@ under `scout_messages`, the number of LLM calls is bounded, and tool output is s
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
@@ -17,10 +18,35 @@ from app.graph import prompts
 from app.graph.deps import Deps
 from app.graph.state import HubScoutState
 from app.graph.usage import ModelUsageRecorder
-from app.schemas import ScoutReport
+from app.schemas import ScoutCandidate, ScoutReport
 
 logger = logging.getLogger(__name__)
 MAX_TOOL_CHARS = 6000
+_REPO_ID = re.compile(r"\b([A-Za-z0-9][\w.-]{1,95}/[A-Za-z0-9][\w.-]{1,95})\b")
+_NOT_REPOS = ("huggingface.co", "http", "www.")
+
+
+def repo_ids_in_tool_results(messages: list[AnyMessage], limit: int) -> list[ScoutCandidate]:
+    """Deterministic fallback: repo ids that literally appear in tool output, in order.
+
+    Safe because every candidate is verified against the Hub by the checker afterwards.
+    """
+    found: list[ScoutCandidate] = []
+    seen: set[str] = set()
+    for msg in messages:
+        if not isinstance(msg, ToolMessage):
+            continue
+        for match in _REPO_ID.findall(str(msg.content)):
+            key = match.strip(".").lower()
+            if key in seen or any(bad in key for bad in _NOT_REPOS):
+                continue
+            seen.add(key)
+            found.append(
+                ScoutCandidate(repo_id=match.strip("."), why="found in Hub search results")
+            )
+            if len(found) >= limit:
+                return found
+    return found
 
 
 def _truncate(content: Any) -> str:
@@ -75,11 +101,22 @@ def make_scout_node(deps: Deps) -> Any:
 
         ask = HumanMessage(prompts.SCOUT_REPORT.format(max_candidates=policy.max_candidates))
         reporter = deps.llm("cheap", schema=ScoutReport).with_config(callbacks=[recorder])
-        report: ScoutReport = await reporter.ainvoke([*messages, ask], config)
+        errors: list[str] = []
+        try:
+            report: ScoutReport = await reporter.ainvoke([*messages, ask], config)
+        except Exception as exc:  # graceful degradation: fall back to parsing tool output
+            logger.warning("scout report failed (%s); using repo ids from tool results", exc)
+            errors.append(f"scout report failed ({type(exc).__name__}); used tool results")
+            report = ScoutReport(
+                candidates=repo_ids_in_tool_results(messages, policy.max_candidates)
+            )
 
+        # The LLM's picks first; remaining slots filled from search results (sorted by
+        # downloads). Everything is verified by the checker, so breadth is cheap and safe.
+        pool = [*report.candidates, *repo_ids_in_tool_results(messages, policy.max_candidates)]
         seen: set[str] = set()
         candidates = []
-        for cand in report.candidates:
+        for cand in pool:
             key = cand.repo_id.strip()
             if key and key.lower() not in seen:
                 seen.add(key.lower())
@@ -88,6 +125,7 @@ def make_scout_node(deps: Deps) -> Any:
             "scout_messages": messages[1:],  # skip the long system prompt
             "candidates": candidates[: policy.max_candidates],
             "models_used": recorder.models,
+            "errors": errors,
         }
 
     return scout

@@ -102,3 +102,32 @@ def test_unlisted_languages_are_a_note_not_a_rejection() -> None:
 
     assert isinstance(result, OpenWeightCandidate)
     assert any("not stated" in n for n in result.notes)
+
+
+def test_adapter_only_repo_is_rejected() -> None:
+    result = check_candidate(facts("a/lora", adapter_only=True), constraints(), TASK, POLICY, "why")
+
+    assert any("adapter-only" in r for r in reasons(result))
+
+
+def test_estimated_params_are_flagged_in_notes() -> None:
+    result = check_candidate(
+        facts("a/b", params_estimated=True), constraints(), TASK, POLICY, "why"
+    )
+
+    assert isinstance(result, OpenWeightCandidate)
+    assert any("estimated from weight-file sizes" in n for n in result.notes)
+
+
+def test_params_estimated_from_one_weight_format_excluding_non_weights() -> None:
+    from app.tools.registries.hub import estimate_params_from_files
+
+    files = {
+        "model.safetensors": 2_000_000_000,
+        "pytorch_model.bin": 4_000_000_000,
+        "training_args.bin": 5_000,
+        "README.md": 100,
+    }
+    assert estimate_params_from_files(files) == 1_000_000_000
+    assert estimate_params_from_files({"pytorch_model.bin": 900, "optimizer.pt": 10**9}) == 450
+    assert estimate_params_from_files({"README.md": 1}) is None

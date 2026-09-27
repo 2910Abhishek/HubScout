@@ -91,6 +91,8 @@ def check_candidate(
 
     if facts.gated:
         reasons.append("gated repo: requires accepting terms / manual approval")
+    if facts.adapter_only:
+        reasons.append("adapter-only repo (e.g. LoRA): needs a separate base model")
     if facts.requires_remote_code:
         reasons.append("requires trust_remote_code (custom code), which HubScout never enables")
 
@@ -122,6 +124,8 @@ def check_candidate(
 
     if constraints.cpu_only:
         notes.append("CPU-only inference: expect high latency")
+    if facts.params_estimated:
+        notes.append("parameter count estimated from weight-file sizes (assumes 16-bit weights)")
     headroom = 1 - fit.est_gb / fit.limit_gb if fit.limit_gb else 0.5
     score = round(0.6 * popularity(facts.downloads) + 0.4 * max(0.0, headroom), 3)
     return OpenWeightCandidate(
