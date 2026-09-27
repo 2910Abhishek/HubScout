@@ -1,9 +1,14 @@
-"""Application configuration, loaded from environment variables and `.env`.
+"""Application configuration.
 
-Every tunable value in HubScout (URLs, keys, model IDs, limits) lives here. Settings are
-grouped by concern; each group reads its own env-var prefix. `.env.example` documents every
-variable. Public, stable endpoints have defaults; anything secret or environment-specific
-(keys, model IDs, database URL) must come from the environment.
+All tunable values in HubScout live in this module, in three layers:
+
+1. Defaults below: every non-secret setting (model IDs, URLs, limits, policy).
+2. `.env.infra` (auto-generated, git-ignored): local infrastructure secrets such as the
+   Postgres password and Langfuse keys. Created by `scripts/init_env.sh`; nobody edits it.
+3. `.env` (git-ignored): the user's external API keys only. See `.env.example`.
+
+Any setting can still be overridden by an environment variable of the same name (plus the
+group's prefix), which is how tests and CI configure it.
 """
 
 from __future__ import annotations
@@ -16,17 +21,21 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_ENV_FILE = PROJECT_ROOT / ".env"
+DEFAULT_ENV_FILES: tuple[Path, ...] = (PROJECT_ROOT / ".env.infra", PROJECT_ROOT / ".env")
 
 DeploymentModeSetting = Literal["ask", "api", "open_weight", "compare"]
 LlmTier = Literal["strong", "cheap", "judge"]
 
 
+class MissingSecretError(RuntimeError):
+    """A secret needed for the requested operation is not configured."""
+
+
 class _Group(BaseSettings):
-    """Base for all settings groups: shared `.env` handling, unknown keys ignored."""
+    """Base for all settings groups: shared env files, unknown keys ignored, immutable."""
 
     model_config = SettingsConfigDict(
-        env_file=DEFAULT_ENV_FILE,
+        env_file=DEFAULT_ENV_FILES,
         env_file_encoding="utf-8",
         env_ignore_empty=True,
         extra="ignore",
@@ -48,19 +57,22 @@ class OpenRouterSettings(_Group):
     timeout_s: float = Field(default=60.0, gt=0)
     # Retries spend the daily quota, so keep them low; the Ollama fallback covers failures.
     max_retries: int = Field(default=1, ge=0)
-    # Optional attribution headers (HTTP-Referer / X-Title) shown on openrouter.ai.
-    app_url: str | None = None
     app_title: str = "HubScout"
 
 
 class LlmSettings(_Group):
-    """Model IDs per tier. Chosen from the live catalogue; never hardcoded in code."""
+    """Model ID per tier, chosen from the live OpenRouter catalogue.
+
+    Verified on 2026-09-27 to exist and support `tools` + `structured_outputs`. The free
+    lineup changes often; the integration smoke test re-checks these IDs.
+    """
 
     model_config = SettingsConfigDict(env_prefix="LLM_")
 
-    model_strong: str
-    model_cheap: str
-    model_judge: str
+    model_strong: str = "nvidia/nemotron-3-super-120b-a12b:free"
+    model_cheap: str = "qwen/qwen3.8-27b:free"
+    # Pinned, never falls back (evaluation judge).
+    model_judge: str = "nvidia/nemotron-3-super-120b-a12b:free"
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     max_concurrency: int = Field(default=3, gt=0)
 
@@ -76,7 +88,8 @@ class OllamaSettings(_Group):
     model_config = SettingsConfigDict(env_prefix="OLLAMA_")
 
     base_url: str = "http://localhost:11434"
-    model: str
+    # Small tool-calling model that fits this machine (CPU, 22 GB RAM); no "thinking" tokens.
+    model: str = "qwen3:4b-instruct"
     # Ollama ignores the key, but the OpenAI client requires a non-empty value.
     api_key: SecretStr = SecretStr("ollama")  # pragma: allowlist secret
     timeout_s: float = Field(default=180.0, gt=0)
@@ -111,11 +124,29 @@ class SearchSettings(_Group):
 class InfraSettings(_Group):
     """Postgres (checkpointer, store, pgvector) and Redis (cache, rate limiting)."""
 
-    database_url: SecretStr
+    postgres_user: str = "hubscout"
+    postgres_password: SecretStr | None = None
+    postgres_db: str = "hubscout"
+    postgres_host: str = "localhost"
+    # Host port 5433: 5432 is already used by a Postgres installed on the host.
+    postgres_port: int = Field(default=5433, gt=0, lt=65536)
     redis_url: str = "redis://localhost:6379/0"
     registry_cache_ttl_s: int = Field(default=6 * 3600, gt=0)
     pricing_cache_ttl_s: int = Field(default=24 * 3600, gt=0)
     search_cache_ttl_s: int = Field(default=3600, gt=0)
+
+    @property
+    def database_url(self) -> SecretStr:
+        """Connection string for the HubScout Postgres, built from the parts above."""
+        if self.postgres_password is None:
+            raise MissingSecretError(
+                "POSTGRES_PASSWORD is not set; run scripts/init_env.sh to generate .env.infra"
+            )
+        password = self.postgres_password.get_secret_value()
+        return SecretStr(
+            f"postgresql://{self.postgres_user}:{password}"
+            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        )
 
 
 class SandboxSettings(_Group):
@@ -143,6 +174,7 @@ class ObservabilitySettings(_Group):
     """Langfuse tracing, LangSmith (Studio), and logging."""
 
     langfuse_host: str = "http://localhost:3000"
+    # Generated into .env.infra together with the local Langfuse project.
     langfuse_public_key: SecretStr | None = None
     langfuse_secret_key: SecretStr | None = None
     langsmith_api_key: SecretStr | None = None
@@ -172,6 +204,7 @@ class ApiSettings(_Group):
 
     model_config = SettingsConfigDict(env_prefix="API_")
 
+    # Generated into .env.infra.
     auth_key: SecretStr | None = None
     host: str = "127.0.0.1"
     port: int = Field(default=8000, gt=0, lt=65536)
@@ -195,13 +228,13 @@ class Settings(BaseModel):
     api: ApiSettings
 
 
-def load_settings(env_file: Path | Literal["default"] | None = "default") -> Settings:
-    """Load settings from the process environment plus an env file.
+def load_settings(env_files: tuple[Path, ...] | Literal["default"] | None = "default") -> Settings:
+    """Load settings from defaults, env files, and the process environment (highest priority).
 
-    `"default"` resolves `DEFAULT_ENV_FILE` at call time (so tests can redirect it);
-    `None` reads the process environment only.
+    `"default"` resolves `DEFAULT_ENV_FILES` at call time (so tests can redirect it);
+    `None` skips env files and reads the process environment only.
     """
-    resolved = DEFAULT_ENV_FILE if env_file == "default" else env_file
+    resolved = DEFAULT_ENV_FILES if env_files == "default" else env_files
     kwargs: dict[str, Any] = {"_env_file": resolved}
     return Settings(
         openrouter=OpenRouterSettings(**kwargs),

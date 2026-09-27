@@ -42,8 +42,11 @@ Trivy, Alembic.
   (libraries), HF MCP (models/datasets), OpenRouter catalogue, or PyPI. Docs beat memory.
 - Fetch Context7 docs before coding against LangGraph, LangChain, ADK, a2a-sdk, FastMCP,
   DeepEval, Langfuse, OpenRouter or Artificial Analysis.
-- Never read, print or commit `.env`. `.env.example` lists every variable, no values.
-- All config via pydantic-settings (`app/config.py`). No hardcoded URLs, keys or model names.
+- Never read, print or commit `.env` or `.env.infra`. `.env` holds ONLY the user's external API
+  keys (template `.env.example`); `.env.infra` holds generated local infra secrets
+  (`scripts/init_env.sh`). Check them with `scripts/check_env.py` (names only, no values).
+- All config via pydantic-settings. Non-secret defaults (model IDs, URLs, limits) live only in
+  `app/config.py`; never hardcode them anywhere else.
 - Every LLM output that feeds code is validated by a Pydantic schema.
 - `trust_remote_code=False` everywhere.
 - Unit/CI tests never call live APIs (fakes + recorded fixtures). Live checks are

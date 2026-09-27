@@ -35,7 +35,10 @@
       "Bash(cat ./.env)",
       "Bash(source .env)",
       "Bash(rm -rf *)",
-      "Bash(rm -fr *)"
+      "Bash(rm -fr *)",
+      "Read(./.env.infra)",
+      "Edit(./.env.infra)",
+      "Bash(cat .env.infra)"
     ]
   },
   "enabledMcpjsonServers": [
