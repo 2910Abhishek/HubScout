@@ -11,6 +11,7 @@ they are combined, so both branches accept the same input and return the same sh
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Sequence
 from functools import lru_cache
@@ -18,7 +19,7 @@ from typing import Any, Literal
 
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
 from langchain_core.messages import BaseMessage
-from langchain_core.runnables import Runnable, RunnableLambda
+from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
@@ -50,6 +51,22 @@ def _shared_rate_limiter(redis_url: str, rpm: int, rpd: int) -> RedisRateLimiter
     return RedisRateLimiter(redis_url, rpm=rpm, rpd=rpd)
 
 
+def with_deadline(runnable: Runnable[Any, Any], seconds: float) -> Runnable[Any, Any]:
+    """Hard wall-clock limit for async calls; a timeout raises, so fallbacks kick in.
+
+    httpx timeouts are per read, and OpenRouter's free queue sends keep-alive bytes while a
+    request waits, so a queued call could otherwise hang for minutes.
+    """
+
+    def _call(value: Any, config: RunnableConfig) -> Any:
+        return runnable.invoke(value, config)
+
+    async def _acall(value: Any, config: RunnableConfig) -> Any:
+        return await asyncio.wait_for(runnable.ainvoke(value, config), seconds)
+
+    return RunnableLambda(_call, afunc=_acall, name="with_deadline")
+
+
 def build_openrouter_model(
     tier: LlmTier,
     settings: Settings,
@@ -70,6 +87,8 @@ def build_openrouter_model(
         max_retries=orc.max_retries,
         rate_limiter=limiter,
         default_headers={"X-Title": orc.app_title},
+        # One response per call (no token streaming): simpler timeouts and clean metadata.
+        disable_streaming=True,
     )
 
 
@@ -124,13 +143,19 @@ def get_llm(
         raise ValueError("pass either tools or schema, not both")
     cfg = settings or get_settings()
 
+    deadline: float | None = None
     if primary is None and cfg.openrouter.api_key is not None:
         primary = build_openrouter_model(tier, cfg)
+        deadline = cfg.openrouter.timeout_s
 
     if tier == "judge":
         if primary is None:
             raise ValueError("the judge tier needs OpenRouter: OPENROUTER_API_KEY is not set")
         return _shape(primary, tools, schema, method)
+
+    def _primary_shaped(model: BaseChatModel) -> Runnable[Any, Any]:
+        shaped = _shape(model, tools, schema, method)
+        return with_deadline(shaped, deadline) if deadline else shaped
 
     local = fallback or build_ollama_model(cfg)
     local_shaped = _shape(local, tools, schema, "json_schema")
@@ -138,7 +163,7 @@ def get_llm(
         logger.warning("OPENROUTER_API_KEY not set; tier %r runs on Ollama only", tier)
         return local_shaped
 
-    return _shape(primary, tools, schema, method).with_fallbacks([local_shaped])
+    return _primary_shaped(primary).with_fallbacks([local_shaped])
 
 
 def served_by(message: BaseMessage) -> str:

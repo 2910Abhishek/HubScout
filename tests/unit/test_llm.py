@@ -129,3 +129,38 @@ def test_empty_structured_output_triggers_fallback_and_ollama_uses_json_schema()
 
     assert llm.invoke("hi") == Out(summary="from fallback")
     assert local.value == "json_schema"
+
+
+async def test_deadline_turns_a_hanging_call_into_a_timeout() -> None:
+    import asyncio
+
+    from langchain_core.runnables import RunnableLambda
+
+    from app.llm import with_deadline
+
+    async def hang(_: Any) -> str:
+        await asyncio.sleep(5)
+        return "late"
+
+    guarded = with_deadline(RunnableLambda(lambda x: x, afunc=hang), 0.05)
+
+    with pytest.raises(TimeoutError):
+        await guarded.ainvoke("hi")
+
+
+async def test_hanging_primary_falls_back_via_deadline() -> None:
+    import asyncio
+
+    from langchain_core.runnables import RunnableLambda
+
+    from app.llm import with_deadline
+
+    async def hang(_: Any) -> str:
+        await asyncio.sleep(5)
+        return "late"
+
+    llm = with_deadline(RunnableLambda(lambda x: x, afunc=hang), 0.05).with_fallbacks(
+        [RunnableLambda(lambda _: "from ollama")]
+    )
+
+    assert await llm.ainvoke("hi") == "from ollama"
