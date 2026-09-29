@@ -1,9 +1,8 @@
 # HubScout
 
-Multi-agent ML project architect (LangGraph). Takes an ML task in plain language, clarifies
-constraints incl. deployment mode (api / open_weight / compare), researches with parallel scouts
-grounded in live registries, checks existence + constraints in code, verifies the top pick in a
-sandbox via a Google ADK verifier over A2A, runs a critic loop, outputs a sourced Blueprint.
+Verified ML starter kit (LangGraph). Takes an ML task in plain language, clarifies constraints
+(licence, hardware, language), scouts live sources in parallel (HF MCP, arXiv, Tavily), verifies
+every item in code, and writes one README with <=5 models, <=5 datasets, <=5 methods (<=15 links).
 Production-ready, never deployed.
 
 ## Read first
@@ -20,6 +19,8 @@ Production-ready, never deployed.
   changes unless asked, until the user writes "start phase N".
 
 ## Stack (do not add/remove/swap without asking)
+Deferred by the v1.0 scope reduction (kept listed, not built now): Google ADK + a2a-sdk,
+hardened Docker sandbox, FastMCP servers, bge-m3/bge-reranker, DeepEval, FastAPI, Streamlit.
 Python 3.12 (uv) · LangGraph + Studio · LangChain (ChatOpenAI only) · OpenRouter free models +
 Ollama fallback · Google ADK + a2a-sdk · HF MCP server · FastMCP (arxiv-mcp, ml-insights-mcp) ·
 Tavily + SearXNG fallback · OpenRouter models API + Artificial Analysis API · Postgres + pgvector, BM25, bge-m3,

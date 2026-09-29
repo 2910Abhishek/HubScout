@@ -17,6 +17,8 @@ Approved plan: `~/.claude/plans/noble-floating-thacker.md` (copy of key decision
 - Web search: Tavily primary, SearXNG fallback. Semantic Scholar dropped (keyless API returns
   429 constantly; keys need an institutional affiliation). Card v0.4.
 - Ollama model: `qwen3:4b-instruct` (no thinking tokens; fast enough on CPU).
+- 2026-09-29: scope reduced to a verified ML starter kit (README with <=15 links across
+  models, datasets, methods). Project card rewritten as v1.0; see its roadmap for phases.
 
 ### Done
 - [x] 1. `scripts/check_prereqs.sh` written; Python 3.12.12 installed via uv
@@ -44,8 +46,8 @@ steps and a Phase 2 thin slice were combined:
       Analysis, HF MCP (live checks were run by hand so far)
 - [ ] 11. ADRs (OpenRouter+Ollama, Store vs Mem0, Docker sandbox, Redis, Tavily)
 - [ ] code-reviewer pass, merge to main, tag
-- [ ] Phase 2 remainder: Postgres checkpointer outside `langgraph dev`, dataset scout
-- [ ] Phase 3: API path (OpenRouter catalogue + Artificial Analysis), MCP servers, parallel scouts
+- [ ] Card v1.0 Phase 2 (starter kit): dataset scout + checks + previews, method scout (arXiv,
+      HF Papers, Tavily), link verifier, StarterKit schema, README renderer, parallel scouts
 
 ## Known issues
 - Free OpenRouter models are often throttled upstream (HTTP 429); on 2026-09-27 only Nemotron
