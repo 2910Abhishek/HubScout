@@ -16,7 +16,7 @@ from app.graph.state import HubScoutState
 from app.schemas import MethodCandidate
 
 logger = logging.getLogger(__name__)
-_ARXIV_URL = re.compile(r"arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5})")
+_ARXIV_URL = re.compile(r"arxiv\.org/(?:abs|pdf|html)/(\d{4}\.\d{4,5})")
 
 
 def classify_web_url(url: str) -> tuple[Literal["paper", "guide", "repo"], str | None]:
@@ -36,11 +36,37 @@ def make_method_scout_node(deps: Deps) -> Any:
         errors: list[str] = []
 
         async def papers(query: str) -> list[MethodCandidate]:
+            # Primary: web search limited to arxiv.org, then confirm the ids with the arXiv id
+            # lookup (reliable, gives exact titles/abstracts). Fallback: arXiv's own search API.
+            found = []
+            hits = await deps.web.search(
+                query, settings.search.arxiv_max_results, include_domains=["arxiv.org"]
+            )
+            ids = list(dict.fromkeys(i for r in hits if (i := classify_web_url(r.url)[1])))
             try:
-                found = await deps.arxiv.search(query, settings.search.arxiv_max_results)
+                found = await deps.arxiv.get(ids) if ids else []
+                if not found:
+                    found = await deps.arxiv.search(query, settings.search.arxiv_max_results)
             except Exception as exc:
-                errors.append(f"arXiv search failed for '{query}' ({type(exc).__name__})")
-                return []
+                # arXiv API down or rate-limited: keep the web hits; verify checks their pages.
+                errors.append(f"arXiv API unavailable for '{query}' ({type(exc).__name__})")
+                seen_ids: set[str] = set()
+                fallback = []
+                for r in hits:
+                    arxiv_id = classify_web_url(r.url)[1]
+                    if arxiv_id and arxiv_id not in seen_ids:
+                        seen_ids.add(arxiv_id)
+                        fallback.append(
+                            MethodCandidate(
+                                title=r.title,
+                                url=f"https://arxiv.org/abs/{arxiv_id}",
+                                kind="paper",
+                                source="web",
+                                snippet=r.snippet[:300],
+                                arxiv_id=arxiv_id,
+                            )
+                        )
+                return fallback
             return [
                 MethodCandidate(
                     title=p.title,

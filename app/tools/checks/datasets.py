@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from app.config import PolicySettings
 from app.schemas import Constraints, DatasetPick, RejectedCandidate
-from app.tools.checks.languages import missing_languages
+from app.tools.checks.languages import lacks_key_language, missing_languages
 from app.tools.checks.open_weight import allowed_licences, popularity
 from app.tools.registries.hub import DatasetFacts
 
@@ -61,7 +61,7 @@ def check_dataset(
         notes.append(f"card lists tasks {facts.task_categories[:3]}, not '{hf_task}'")
 
     missing = missing_languages(constraints.languages, facts.languages)
-    if missing and facts.languages and len(missing) == len(constraints.languages):
+    if lacks_key_language(constraints.languages, facts.languages):
         reasons.append(f"card lists none of the required languages {missing}")
     elif missing:
         notes.append(f"language support for {missing} not stated on the card")

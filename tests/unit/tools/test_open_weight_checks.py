@@ -143,3 +143,12 @@ def test_partial_language_coverage_is_a_note_not_a_rejection() -> None:
 
     assert isinstance(result, OpenWeightCandidate)
     assert any("['en']" in n for n in result.notes)
+
+
+def test_english_alone_does_not_satisfy_a_hindi_english_task() -> None:
+    from app.tools.checks.languages import lacks_key_language
+
+    assert lacks_key_language(["hi", "en"], ["en", "tw"]) is True
+    assert lacks_key_language(["hi", "en"], ["hin"]) is False
+    assert lacks_key_language(["en"], ["en", "de"]) is False
+    assert lacks_key_language(["hi"], []) is False  # card lists nothing: a note, not a rejection

@@ -25,7 +25,9 @@ class WebResult:
 
 
 class WebSearch(Protocol):
-    async def search(self, query: str, max_results: int) -> list[WebResult]: ...
+    async def search(
+        self, query: str, max_results: int, include_domains: list[str] | None = None
+    ) -> list[WebResult]: ...
 
 
 class WebSearchClient:
@@ -33,7 +35,9 @@ class WebSearchClient:
         self._s = settings.search
         self._timeout = settings.data.http_timeout_s
 
-    async def _tavily(self, query: str, max_results: int) -> list[WebResult]:
+    async def _tavily(
+        self, query: str, max_results: int, include_domains: list[str] | None = None
+    ) -> list[WebResult]:
         if self._s.tavily_api_key is None:
             raise ValueError("TAVILY_API_KEY is not set")
         async with httpx.AsyncClient(timeout=self._timeout) as client:
@@ -44,6 +48,7 @@ class WebSearchClient:
                     "query": query,
                     "max_results": max_results,
                     "search_depth": self._s.tavily_search_depth,
+                    **({"include_domains": include_domains} if include_domains else {}),
                 },
             )
             resp.raise_for_status()
@@ -65,12 +70,16 @@ class WebSearchClient:
             if r.get("url") and r.get("title")
         ]
 
-    async def search(self, query: str, max_results: int) -> list[WebResult]:
+    async def search(
+        self, query: str, max_results: int, include_domains: list[str] | None = None
+    ) -> list[WebResult]:
         if self._s.search_backend == "tavily" and self._s.tavily_api_key is not None:
             try:
-                return await self._tavily(query, max_results)
+                return await self._tavily(query, max_results, include_domains)
             except (httpx.HTTPError, KeyError, ValueError) as exc:
                 logger.warning("Tavily search failed (%s); falling back to SearXNG", exc)
+        if include_domains:  # SearXNG: express the domain filter as site: operators
+            query = " ".join([query, *(f"site:{d}" for d in include_domains)])
         try:
             return await self._searxng(query, max_results)
         except (httpx.HTTPError, KeyError, ValueError) as exc:

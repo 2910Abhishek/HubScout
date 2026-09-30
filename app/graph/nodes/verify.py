@@ -139,7 +139,13 @@ def make_verify_node(deps: Deps) -> Any:
                 {p.arxiv_id for p in await deps.arxiv.get(web_arxiv)} if web_arxiv else set()
             )
         except Exception:
-            confirmed = set()
+            # arXiv API unavailable: confirm each paper by its abstract page resolving instead.
+            pages = await bounded_gather(
+                [f"https://arxiv.org/abs/{i}" for i in web_arxiv],
+                deps.links.check,
+                policy.scout_concurrency,
+            )
+            confirmed = {i for i, s in zip(web_arxiv, pages, strict=True) if s.ok}
         needs_http = [c for c in method_cands if not c.arxiv_id]
         statuses = await bounded_gather(
             [c.url for c in needs_http], deps.links.check, policy.scout_concurrency

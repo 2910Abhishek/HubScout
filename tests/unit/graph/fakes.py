@@ -123,7 +123,11 @@ class FakeWeb:
     def __init__(self, results: list[WebResult] | None = None) -> None:
         self.results = results or []
 
-    async def search(self, query: str, max_results: int) -> list[WebResult]:
+    async def search(
+        self, query: str, max_results: int, include_domains: list[str] | None = None
+    ) -> list[WebResult]:
+        if include_domains:  # paper searches: only results on those domains
+            return [r for r in self.results if any(d in r.url for d in include_domains)]
         return self.results[:max_results]
 
 

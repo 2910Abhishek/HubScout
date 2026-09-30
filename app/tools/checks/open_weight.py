@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from app.config import PolicySettings
 from app.schemas import Constraints, OpenWeightCandidate, RejectedCandidate, Source
 from app.schemas.candidates import Precision
-from app.tools.checks.languages import missing_languages
+from app.tools.checks.languages import lacks_key_language, missing_languages
 from app.tools.registries.hub import ModelFacts
 
 BYTES_PER_PARAM: dict[Precision, float] = {
@@ -116,7 +116,7 @@ def check_candidate(
             reasons.append(f"too large: {fit.note}")
 
     missing_langs = missing_languages(constraints.languages, facts.languages)
-    if missing_langs and facts.languages and len(missing_langs) == len(constraints.languages):
+    if lacks_key_language(constraints.languages, facts.languages):
         reasons.append(f"model card lists none of the required languages {missing_langs}")
     elif missing_langs and facts.languages:
         notes.append(f"model card does not list {missing_langs}")

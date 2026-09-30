@@ -16,6 +16,18 @@ def normalize(code: str) -> str:
     return ISO3_TO_ISO1.get(code, code)
 
 
+def lacks_key_language(required: list[str], available: list[str]) -> bool:
+    """True if the card lists languages but none of the ones that matter.
+
+    English appears on almost every card, so when other languages are required (e.g. Hindi for
+    Hindi-English), at least one of THOSE must be listed; English alone is not enough.
+    """
+    if not required or not available:
+        return False
+    key = [lang for lang in required if normalize(lang) != "en"] or required
+    return len(missing_languages(key, available)) == len(key)
+
+
 def missing_languages(required: list[str], available: list[str]) -> list[str]:
     have = {normalize(c) for c in available}
     return [lang for lang in required if normalize(lang) not in have]

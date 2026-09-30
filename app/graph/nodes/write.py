@@ -142,11 +142,16 @@ def make_write_node(deps: Deps) -> Any:
             methods += picked[: n - len(methods)]
 
         gaps = gaps_for(models, datasets, methods, rejected)
+        kit_ids = {d.repo_id.lower() for d in datasets}
         facts = {
             "constraints": constraints.model_dump(mode="json"),
+            # Only relationships to items that are in the kit: unverified names must not leak.
             "models": [
-                m.model_dump(mode="json", include={"repo_id", "licence", "params_billion",
-                "est_vram_gb", "precision", "trained_on", "papers", "reasons"})
+                {
+                    **m.model_dump(mode="json", include={"repo_id", "licence", "params_billion",
+                    "est_vram_gb", "precision", "reasons"}),
+                    "trained_on_kit_datasets": [d for d in m.trained_on if d.lower() in kit_ids],
+                }
                 for m in models
             ],
             "datasets": [
