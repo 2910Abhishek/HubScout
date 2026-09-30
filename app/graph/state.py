@@ -11,13 +11,16 @@ from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 
 from app.schemas import (
-    Blueprint,
     ConstraintDraft,
     Constraints,
+    DatasetPick,
+    MethodCandidate,
+    MethodPick,
     OpenWeightCandidate,
     RejectedCandidate,
     ResearchPlan,
     ScoutCandidate,
+    StarterKit,
 )
 
 
@@ -50,14 +53,21 @@ class HubScoutState(TypedDict, total=False):
     plan_feedback: str | None
     plan_revisions: int
     plan_approved: bool
-    # Scout (the full tool-calling conversation is kept so you can inspect it in Studio)
+    # Scouts (run in parallel). The model scout's tool conversation is kept for Studio.
     scout_messages: Annotated[list[AnyMessage], add_messages]
-    candidates: list[ScoutCandidate]
-    # Checker
-    approved: list[OpenWeightCandidate]
+    model_candidates: list[ScoutCandidate]
+    dataset_candidates: list[ScoutCandidate]
+    method_candidates: list[MethodCandidate]
+    # Verification (code only) and linking
+    verified_models: list[OpenWeightCandidate]
+    verified_datasets: list[DatasetPick]
+    verified_methods: list[MethodPick]
     rejected: list[RejectedCandidate]
+    sources_checked: int
     # Output
-    blueprint: Blueprint
+    starter_kit: StarterKit
+    readme: str
+    readme_path: str | None
     models_used: Annotated[list[str], unique_merge]
     errors: Annotated[list[str], operator.add]
 

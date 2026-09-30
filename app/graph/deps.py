@@ -13,8 +13,11 @@ from pydantic import BaseModel
 
 from app.config import LlmTier, Settings, get_settings
 from app.llm import get_llm
+from app.tools.checks.links import HttpLinkChecker, LinkChecker
 from app.tools.mcp_clients import load_hf_tools
+from app.tools.registries.arxiv import ArxivClient, PaperLookup
 from app.tools.registries.hub import HubClient, HubLookup
+from app.tools.search import WebSearch, WebSearchClient
 
 
 class LlmFactory(Protocol):
@@ -33,6 +36,9 @@ class Deps:
     llm: LlmFactory
     hub: HubLookup
     load_tools: Callable[[], Awaitable[list[BaseTool]]]
+    arxiv: PaperLookup
+    web: WebSearch
+    links: LinkChecker
 
 
 def default_deps() -> Deps:
@@ -49,4 +55,12 @@ def default_deps() -> Deps:
     async def tools() -> list[BaseTool]:
         return await load_hf_tools(settings)
 
-    return Deps(settings=settings, llm=llm, hub=HubClient(settings), load_tools=tools)
+    return Deps(
+        settings=settings,
+        llm=llm,
+        hub=HubClient(settings),
+        load_tools=tools,
+        arxiv=ArxivClient(settings),
+        web=WebSearchClient(settings),
+        links=HttpLinkChecker(settings.data.http_timeout_s),
+    )

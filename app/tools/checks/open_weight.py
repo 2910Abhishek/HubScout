@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from app.config import PolicySettings
 from app.schemas import Constraints, OpenWeightCandidate, RejectedCandidate, Source
 from app.schemas.candidates import Precision
+from app.tools.checks.languages import missing_languages
 from app.tools.registries.hub import ModelFacts
 
 BYTES_PER_PARAM: dict[Precision, float] = {
@@ -82,9 +83,10 @@ def check_candidate(
     scout_reason: str,
 ) -> OpenWeightCandidate | RejectedCandidate:
     if not facts.exists:
-        return RejectedCandidate(
-            repo_id=facts.repo_id, stage="existence", reasons=["repo does not exist on the Hub"]
+        reason = (
+            f"could not verify: {facts.error}" if facts.error else "repo does not exist on the Hub"
         )
+        return RejectedCandidate(repo_id=facts.repo_id, stage="existence", reasons=[reason])
 
     reasons: list[str] = []
     notes: list[str] = []
@@ -113,9 +115,11 @@ def check_candidate(
         if not fit.fits:
             reasons.append(f"too large: {fit.note}")
 
-    missing_langs = [lang for lang in constraints.languages if lang not in facts.languages]
-    if missing_langs and facts.languages:
-        reasons.append(f"model card does not list required languages {missing_langs}")
+    missing_langs = missing_languages(constraints.languages, facts.languages)
+    if missing_langs and facts.languages and len(missing_langs) == len(constraints.languages):
+        reasons.append(f"model card lists none of the required languages {missing_langs}")
+    elif missing_langs and facts.languages:
+        notes.append(f"model card does not list {missing_langs}")
     elif missing_langs:
         notes.append(f"language support for {missing_langs} not stated on the model card")
 
@@ -140,4 +144,7 @@ def check_candidate(
         reasons=[scout_reason, fit.note],
         notes=notes,
         sources=[Source(url=facts.url, retrieved_at=facts.retrieved_at)],
+        last_modified=facts.last_modified,
+        trained_on=facts.trained_on,
+        papers=facts.papers,
     )

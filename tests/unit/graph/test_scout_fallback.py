@@ -51,7 +51,7 @@ async def test_scout_survives_a_failing_llm_and_uses_grounded_search() -> None:
     from langchain_core.tools import tool
 
     from app.config import load_settings
-    from app.graph.nodes.scout import make_scout_node
+    from app.graph.nodes.scout import make_model_scout_node
     from app.schemas import Constraints, ResearchPlan
     from tests.unit.graph.fakes import FakeHub, make_deps
 
@@ -79,7 +79,6 @@ async def test_scout_survives_a_failing_llm_and_uses_grounded_search() -> None:
         "constraints": Constraints(
             task_family="speech",
             task_description="ASR",
-            deployment_mode="open_weight",
             commercial_use=True,
             languages=["hi"],
             gpu_vram_gb=16,
@@ -89,9 +88,9 @@ async def test_scout_survives_a_failing_llm_and_uses_grounded_search() -> None:
         ),
     }
 
-    out = await make_scout_node(deps)(state, {})
+    out = await make_model_scout_node(deps)(state, {})
 
-    assert [c.repo_id for c in out["candidates"]] == [
+    assert [c.repo_id for c in out["model_candidates"]] == [
         "openai/whisper-small",
         "vasista22/whisper-hindi-small",
     ]

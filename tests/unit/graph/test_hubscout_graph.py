@@ -1,39 +1,50 @@
-"""End-to-end run of the HubScout graph with fakes: interrupts, routing, checks, blueprint."""
+"""End-to-end runs of the HubScout graph with fakes: interrupts, parallel scouts, verification,
+metadata linking, method selection, gaps and the rendered README."""
 
 from typing import Any
 
-import pytest
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from app.graph.build import build_graph
 from app.schemas import (
-    AggregatorNarrative,
-    Blueprint,
     ConstraintDraft,
+    KitNarrative,
+    MethodSelection,
     ResearchPlan,
     ScoutCandidate,
     ScoutReport,
+    StarterKit,
 )
-from tests.unit.graph.fakes import FakeHub, ScriptedLlm, facts, make_deps, make_search_tool
+from app.tools.registries.arxiv import Paper
+from app.tools.search import WebResult
+from tests.unit.graph.fakes import (
+    FakeArxiv,
+    FakeHub,
+    FakeLinks,
+    FakeWeb,
+    ScriptedLlm,
+    dataset_facts,
+    facts,
+    make_deps,
+    make_search_tool,
+)
 
 REQUEST = "Speech-to-text for Hindi-English customer calls."
 PLAN = ResearchPlan(
     hf_task="automatic-speech-recognition",
     search_queries=["whisper hindi"],
+    dataset_queries=["hindi speech"],
+    method_queries=["code switching asr"],
     steps=["search the Hub", "check constraints"],
 )
 FULL_DRAFT = ConstraintDraft(
     task_family="speech",
     task_description="Transcribe Hindi-English calls",
-    deployment_mode="open_weight",
     commercial_use=True,
     languages=["hi", "en"],
     gpu_vram_gb=16,
-)
-NARRATIVE = AggregatorNarrative(
-    recommendation_summary="Use whisper-small.", pick_reasons=["fits"], risks=["accents"]
 )
 REPORT = ScoutReport(
     candidates=[
@@ -43,11 +54,27 @@ REPORT = ScoutReport(
         ScoutCandidate(repo_id="OpenAI/whisper-small", why="duplicate, different case"),
     ]
 )
+WHISPER_PAPER = Paper("2212.04356", "Robust Speech Recognition via Weak Supervision", "…", "2022")
+SEARCH_PAPER = Paper("2401.00001", "Code-Switching ASR for Hinglish", "A method paper.", "2024")
 HUB = FakeHub(
-    {
-        "openai/whisper-small": facts("openai/whisper-small"),
+    models={
+        "openai/whisper-small": facts(
+            "openai/whisper-small", tags=["dataset:org/hinglish-speech", "arxiv:2212.04356"]
+        ),
         "fake/huge-model": facts("fake/huge-model", params=70_000_000_000, licence="llama3.1"),
-    }
+    },
+    datasets={
+        "org/hinglish-speech": dataset_facts("org/hinglish-speech", downloads=100),
+        "org/hindi-asr": dataset_facts("org/hindi-asr", downloads=90_000),
+        "org/nc-data": dataset_facts("org/nc-data", licence="cc-by-nc-4.0"),
+    },
+)
+WEB = FakeWeb(
+    [
+        WebResult("Fine-tuning Whisper for Hindi", "https://example.com/whisper-hindi", "…", "t"),
+        WebResult("Moved page", "https://example.com/dead", "…", "t"),
+        WebResult("Reference code", "https://github.com/org/hinglish-asr", "…", "t"),
+    ]
 )
 
 
@@ -59,15 +86,16 @@ def interrupt_value(result: dict[str, Any]) -> dict[str, Any]:
     return result["__interrupt__"][0].value  # type: ignore[no-any-return]
 
 
-async def test_full_run_with_clarification_and_plan_approval() -> None:
-    partial = FULL_DRAFT.model_copy(update={"deployment_mode": None, "gpu_vram_gb": None})
-    search_calls: list[dict[str, Any]] = []
+async def test_full_run_builds_a_verified_connected_starter_kit() -> None:
+    partial = FULL_DRAFT.model_copy(update={"commercial_use": None, "gpu_vram_gb": None})
+    searches: list[dict[str, Any]] = []
     llm = ScriptedLlm(
         structured={
             ConstraintDraft: [partial, FULL_DRAFT],
             ResearchPlan: [PLAN],
             ScoutReport: [REPORT],
-            AggregatorNarrative: [NARRATIVE],
+            MethodSelection: [MethodSelection(picks=[0, 1], reasons=["method paper", "guide"])],
+            KitNarrative: [KitNarrative(tldr="Use whisper-small.", fit_story="They connect.")],
         },
         tool_replies=[
             AIMessage(
@@ -79,36 +107,73 @@ async def test_full_run_with_clarification_and_plan_approval() -> None:
             AIMessage(content="found enough"),
         ],
     )
-    graph = build_graph(
-        make_deps(llm, HUB, [make_search_tool(search_calls)]), checkpointer=InMemorySaver()
+    tool = make_search_tool(
+        searches, models="### openai/whisper-small", datasets="### org/hindi-asr\n### org/nc-data"
     )
+    arxiv = FakeArxiv(papers=[WHISPER_PAPER], search_results=[SEARCH_PAPER])
+    deps = make_deps(
+        llm, HUB, [tool], arxiv=arxiv, web=WEB, links=FakeLinks({"https://example.com/dead"})
+    )
+    graph = build_graph(deps, checkpointer=InMemorySaver())
 
-    # 1) Clarifier pauses with only the missing questions.
+    # 1) Only the missing questions are asked; there is no deployment-mode question any more.
     result = await graph.ainvoke({"request": REQUEST}, thread())
     questions = interrupt_value(result)["questions"]
     assert len(questions) == 2
-    assert "hosted API" in questions[0]
+    assert "commercial" in questions[0]
     assert "hardware" in questions[1]
 
-    # 2) Answer -> clarifier settles -> planner -> pauses for plan approval.
-    result = await graph.ainvoke(Command(resume="Self-hosted, one 16 GB GPU"), thread())
-    assert interrupt_value(result)["type"] == "plan_approval"
-    assert interrupt_value(result)["plan"]["hf_task"] == "automatic-speech-recognition"
+    # 2) Answer -> plan approval shows all three query lists.
+    result = await graph.ainvoke(Command(resume="commercial, one 16 GB GPU"), thread())
+    plan = interrupt_value(result)["plan"]
+    assert plan["dataset_queries"] == ["hindi speech"]
+    assert plan["method_queries"] == ["code switching asr"]
 
-    # 3) Approve -> scout (MCP tool) -> checker -> aggregator.
+    # 3) Approve -> three scouts in parallel -> verify -> write.
     result = await graph.ainvoke(Command(resume="yes"), thread())
-    blueprint: Blueprint = result["blueprint"]
+    kit: StarterKit = result["starter_kit"]
 
-    assert search_calls == [{"query": "whisper hindi", "filters": None}]
-    assert blueprint.open_weight_pick is not None
-    assert blueprint.open_weight_pick.repo_id == "openai/whisper-small"
-    assert blueprint.open_weight_pick.precision == "bf16"
-    rejected = {r.repo_id: r for r in blueprint.rejected}
+    # Models: only the verified one, duplicates and fakes removed.
+    assert [m.repo_id for m in kit.models] == ["openai/whisper-small"]
+    assert len(result["model_candidates"]) == 3
+
+    # Datasets: the one the model was trained on comes from Hub metadata and ranks first.
+    assert [d.repo_id for d in kit.datasets] == ["org/hinglish-speech", "org/hindi-asr"]
+    assert kit.datasets[0].used_by == ["openai/whisper-small"]
+    assert kit.datasets[0].sample_rows
+
+    # Methods: the linked paper first, then the LLM's picks among verified results only.
+    assert [m.url for m in kit.methods] == [
+        "https://arxiv.org/abs/2212.04356",
+        "https://arxiv.org/abs/2401.00001",
+        "https://example.com/whisper-hindi",
+    ]
+    assert kit.methods[0].source == "hub-metadata"
+    assert kit.methods[0].describes == ["openai/whisper-small"]
+    assert kit.methods[1].why == "method paper"
+
+    rejected = {r.repo_id: r for r in kit.rejected}
     assert rejected["nobody/does-not-exist"].stage == "existence"
-    assert any("licence" in reason for reason in rejected["fake/huge-model"].reasons)
-    assert len(result["candidates"]) == 3  # duplicate removed
-    assert blueprint.pipeline_mermaid is not None
-    assert "whisper-small" in blueprint.pipeline_mermaid
+    assert any("licence" in r for r in rejected["fake/huge-model"].reasons)
+    assert rejected["org/nc-data"].kind == "dataset"
+    assert rejected["https://example.com/dead"].reasons == ["HTTP 404"]
+
+    assert len(kit.links) <= 15
+    assert kit.tldr == "Use whisper-small."
+    assert kit.quick_start is not None
+    assert "trust_remote_code=False" in kit.quick_start
+    assert "org/hinglish-speech" in kit.quick_start
+    assert result["readme_path"] is None  # tests never write files
+
+    readme = result["readme"]
+    for section in ("## TL;DR", "## 1. Models", "## 2. Datasets", "## 3. Methods", "Sample rows"):
+        assert section in readme
+    assert "used to train openai/whisper-small" in readme
+    assert "## What we ruled out (4)" in readme
+
+    dataset_searches = [s for s in searches if s["repo_types"] == ["dataset"]]
+    assert dataset_searches[0]["filters"] == ["task_categories:automatic-speech-recognition"]
+    assert arxiv.searches == ["code switching asr"]
     assert llm.calls == [
         "strong:ConstraintDraft",
         "strong:ConstraintDraft",
@@ -116,20 +181,23 @@ async def test_full_run_with_clarification_and_plan_approval() -> None:
         "cheap:tools",
         "cheap:tools",
         "cheap:ScoutReport",
-        "strong:AggregatorNarrative",
+        "cheap:MethodSelection",
+        "strong:KitNarrative",
     ]
 
 
-async def test_plan_feedback_triggers_one_revision() -> None:
+async def test_nothing_found_gives_an_honest_empty_kit_after_a_plan_revision() -> None:
     revised = PLAN.model_copy(update={"search_queries": ["indic asr"]})
     llm = ScriptedLlm(
         structured={
             ConstraintDraft: [FULL_DRAFT],
             ResearchPlan: [PLAN, revised],
             ScoutReport: [ScoutReport(candidates=[])],
-        },
+        }
     )
-    graph = build_graph(make_deps(llm, HUB, []), checkpointer=InMemorySaver())
+    graph = build_graph(
+        make_deps(llm, FakeHub(), [make_search_tool([])]), checkpointer=InMemorySaver()
+    )
 
     result = await graph.ainvoke({"request": REQUEST}, thread())
     assert interrupt_value(result)["type"] == "plan_approval"
@@ -137,44 +205,13 @@ async def test_plan_feedback_triggers_one_revision() -> None:
     assert interrupt_value(result)["plan"]["search_queries"] == ["indic asr"]
     result = await graph.ainvoke(Command(resume={"approved": True}), thread())
 
-    blueprint: Blueprint = result["blueprint"]
-    assert blueprint.open_weight_pick is None
-    assert any("No open-weight candidate" in n for n in blueprint.notes)
-
-
-async def test_api_mode_skips_scouting_and_explains() -> None:
-    llm = ScriptedLlm(
-        structured={ConstraintDraft: [FULL_DRAFT.model_copy(update={"deployment_mode": "api"})]}
-    )
-    graph = build_graph(make_deps(llm, HUB, []), checkpointer=InMemorySaver())
-
-    result = await graph.ainvoke({"request": REQUEST}, thread())
-
-    blueprint: Blueprint = result["blueprint"]
-    assert blueprint.open_weight_pick is None
-    assert any("hosted-API path" in n for n in blueprint.notes)
-    assert llm.calls == ["strong:ConstraintDraft"]
-
-
-@pytest.mark.parametrize("rounds", [2])
-async def test_clarifier_stops_asking_after_max_rounds(rounds: int) -> None:
-    empty = ConstraintDraft()
-    llm = ScriptedLlm(
-        structured={
-            ConstraintDraft: [empty] * (rounds + 1),
-            ResearchPlan: [PLAN],
-        }
-    )
-    graph = build_graph(make_deps(llm, HUB, []), checkpointer=InMemorySaver())
-
-    await graph.ainvoke({"request": "something"}, thread())
-    for _ in range(rounds):
-        result = await graph.ainvoke(Command(resume="no idea"), thread())
-
-    assert interrupt_value(result)["type"] == "plan_approval"
-    state = (await graph.aget_state(thread())).values
-    assert state["constraints"].cpu_only is True
-    assert len(state["assumptions"]) == 4
+    kit: StarterKit = result["starter_kit"]
+    assert kit.links == []
+    assert len(kit.gaps) == 3
+    assert all("passed verification" in gap for gap in kit.gaps)
+    assert "_No model passed verification" in result["readme"]
+    # No narrative LLM call when there is nothing to summarise.
+    assert "strong:KitNarrative" not in llm.calls
 
 
 async def test_empty_resume_re_asks_without_using_a_round() -> None:
@@ -207,3 +244,18 @@ async def test_empty_plan_review_re_asks() -> None:
     assert interrupt_value(result)["type"] == "plan_approval"
     assert "empty" in interrupt_value(result)["error"]
     assert llm.calls.count("strong:ResearchPlan") == 1
+
+
+async def test_clarifier_stops_asking_after_max_rounds() -> None:
+    llm = ScriptedLlm(structured={ConstraintDraft: [ConstraintDraft()] * 3, ResearchPlan: [PLAN]})
+    graph = build_graph(make_deps(llm, HUB, []), checkpointer=InMemorySaver())
+
+    result = await graph.ainvoke({"request": "something"}, thread())
+    assert len(interrupt_value(result)["questions"]) == 3  # commercial, task, hardware
+    for _ in range(2):
+        result = await graph.ainvoke(Command(resume="no idea"), thread())
+
+    assert interrupt_value(result)["type"] == "plan_approval"
+    state = (await graph.aget_state(thread())).values
+    assert state["constraints"].cpu_only is True
+    assert len(state["assumptions"]) == 3

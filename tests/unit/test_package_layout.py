@@ -16,6 +16,7 @@ PACKAGES = [
     "app.memory",
     "app.guardrails",
     "app.api",
+    "app.report",
     "mcp_servers.arxiv_mcp",
     "mcp_servers.ml_insights_mcp",
     "verifier",

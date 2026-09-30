@@ -6,7 +6,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-DeploymentMode = Literal["api", "open_weight", "compare"]
 TaskFamily = Literal["text", "speech", "vision"]
 
 
@@ -21,11 +20,6 @@ class ConstraintDraft(BaseModel):
     )
     task_description: str | None = Field(
         default=None, description="One-sentence restatement of the ML task"
-    )
-    deployment_mode: DeploymentMode | None = Field(
-        default=None,
-        description="api = hosted API; open_weight = self-hosted weights; compare = both. "
-        "None unless the user clearly said so",
     )
     commercial_use: bool | None = Field(default=None, description="None unless stated")
     languages: list[str] = Field(
@@ -49,11 +43,10 @@ class ConstraintDraft(BaseModel):
 
 
 class Constraints(BaseModel):
-    """Settled requirements that every later stage relies on (card §10.2)."""
+    """Settled requirements that every later stage relies on."""
 
     task_family: TaskFamily
     task_description: str
-    deployment_mode: DeploymentMode
     commercial_use: bool
     languages: list[str] = Field(default_factory=list)
     gpu_vram_gb: float | None = Field(default=None, ge=0)

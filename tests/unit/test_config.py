@@ -19,7 +19,6 @@ def test_works_with_no_env_at_all() -> None:
     assert settings.openrouter.rpd == 50
     assert settings.llm.model_strong
     assert settings.ollama.openai_base_url == "http://localhost:11434/v1"
-    assert settings.policy.default_deployment_mode == "ask"
     assert settings.search.search_backend == "tavily"
     assert settings.search.tavily_api_key is None
     assert settings.policy.licence_allowlist == [
@@ -68,7 +67,7 @@ def test_empty_values_fall_back_to_defaults(monkeypatch: pytest.MonkeyPatch) -> 
     ("name", "value"),
     [
         ("OPENROUTER_RPM", "0"),
-        ("DEFAULT_DEPLOYMENT_MODE", "on_prem"),
+        ("MAX_CANDIDATES", "0"),
         ("MAX_CRITIC_LOOPS", "99"),
         ("API_PORT", "70000"),
         ("SEARCH_BACKEND", "bing"),

@@ -16,7 +16,7 @@ from app.config import PROJECT_ROOT, load_settings
 
 ENV = PROJECT_ROOT / ".env"
 INFRA = PROJECT_ROOT / ".env.infra"
-REQUIRED = ["OPENROUTER_API_KEY", "ARTIFICIAL_ANALYSIS_API_KEY", "LANGSMITH_API_KEY"]
+REQUIRED = ["OPENROUTER_API_KEY", "LANGSMITH_API_KEY"]
 
 
 def _report(path: Path, required: list[str]) -> list[str]:

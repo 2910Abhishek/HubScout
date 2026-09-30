@@ -1,22 +1,30 @@
-"""Pydantic schemas shared by graph nodes: constraints, plan, candidates, blueprint."""
+"""Pydantic schemas shared by graph nodes: constraints, plan, candidates, starter kit."""
 
-from app.schemas.blueprint import AggregatorNarrative, Blueprint
 from app.schemas.candidates import (
+    DatasetPick,
+    MethodCandidate,
+    MethodPick,
+    MethodSelection,
     OpenWeightCandidate,
     RejectedCandidate,
     ScoutCandidate,
     ScoutReport,
     Source,
 )
-from app.schemas.constraints import ConstraintDraft, Constraints, DeploymentMode, TaskFamily
+from app.schemas.constraints import ConstraintDraft, Constraints, TaskFamily
+from app.schemas.kit import MAX_LINKS, MAX_PER_SECTION, KitNarrative, StarterKit
 from app.schemas.plan import PlanReview, ResearchPlan
 
 __all__ = [
-    "AggregatorNarrative",
-    "Blueprint",
+    "MAX_LINKS",
+    "MAX_PER_SECTION",
     "ConstraintDraft",
     "Constraints",
-    "DeploymentMode",
+    "DatasetPick",
+    "KitNarrative",
+    "MethodCandidate",
+    "MethodPick",
+    "MethodSelection",
     "OpenWeightCandidate",
     "PlanReview",
     "RejectedCandidate",
@@ -24,5 +32,6 @@ __all__ = [
     "ScoutCandidate",
     "ScoutReport",
     "Source",
+    "StarterKit",
     "TaskFamily",
 ]

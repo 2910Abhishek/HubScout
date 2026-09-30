@@ -15,7 +15,6 @@ def constraints(**kw: object) -> Constraints:
     base: dict[str, object] = {
         "task_family": "speech",
         "task_description": "ASR",
-        "deployment_mode": "open_weight",
         "commercial_use": True,
         "gpu_vram_gb": 16,
     }
@@ -75,7 +74,7 @@ def test_missing_repo_rejected_at_existence_stage() -> None:
         ({"pipeline_tag": "text-generation"}, "task mismatch"),
         ({"params": 60_000_000_000}, "too large"),
         ({"params": None}, "parameter count unknown"),
-        ({"languages": ["en"]}, "does not list required languages ['hi']"),
+        ({"languages": ["en"]}, "lists none of the required languages ['hi']"),
     ],
 )
 def test_each_rule_rejects_with_a_readable_reason(
@@ -131,3 +130,16 @@ def test_params_estimated_from_one_weight_format_excluding_non_weights() -> None
     assert estimate_params_from_files(files) == 1_000_000_000
     assert estimate_params_from_files({"pytorch_model.bin": 900, "optimizer.pt": 10**9}) == 450
     assert estimate_params_from_files({"README.md": 1}) is None
+
+
+def test_partial_language_coverage_is_a_note_not_a_rejection() -> None:
+    result = check_candidate(
+        facts("a/hindi-only", languages=["hin"]),
+        constraints(languages=["hi", "en"]),
+        TASK,
+        POLICY,
+        "why",
+    )
+
+    assert isinstance(result, OpenWeightCandidate)
+    assert any("['en']" in n for n in result.notes)

@@ -1,4 +1,4 @@
-"""Open-weight scout: an LLM that searches the Hub through the official HF MCP server.
+"""Model scout: an LLM that searches the Hub for models through the official HF MCP server.
 
 A small, explicit tool loop (instead of a prebuilt agent) so every step is visible in Studio
 under `scout_messages`, the number of LLM calls is bounded, and tool output is size-capped.
@@ -24,36 +24,56 @@ logger = logging.getLogger(__name__)
 # Keep the tool conversation small: local fallback models have a ~4K-token context on CPU.
 MAX_TOOL_CHARS = 4000
 MAX_SEARCH_RESULTS = 8
+MIN_CANDIDATES = 3
 # Repo-like ids, but not dataset tags ("dataset:org/name"), base-model tags or URL fragments.
 _REPO_ID = re.compile(r"(?<![\w:/.-])([A-Za-z0-9][\w.-]{1,95}/[A-Za-z0-9][\w.-]{1,95})\b")
 _NOT_REPOS = ("huggingface.co", "hf.co", "http", "www.")
+# Hub search results list each repo as a Markdown heading ("### org/name"): most precise source.
+_HEADING_ID = re.compile(
+    r"^#{2,4}\s+([A-Za-z0-9][\w.-]{0,95}/[A-Za-z0-9][\w.-]{0,95})\s*$", re.MULTILINE
+)
+
+
+def tool_text(result: Any) -> str:
+    """Plain text of a tool result (MCP tools return a list of content blocks)."""
+    if isinstance(result, str):
+        return result
+    if isinstance(result, list):
+        parts = [
+            str(block.get("text", "")) if isinstance(block, dict) else str(block)
+            for block in result
+        ]
+        return "\n".join(p for p in parts if p)
+    return str(result)
+
+
+def repo_ids_in_text(text: str) -> list[str]:
+    """Repo ids in text, in order, without duplicates: result headings first, else any id."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for match in _HEADING_ID.findall(text) or _REPO_ID.findall(text):
+        repo = match.strip(".")
+        key = repo.lower()
+        if key not in seen and not any(bad in key for bad in _NOT_REPOS):
+            seen.add(key)
+            found.append(repo)
+    return found
 
 
 def repo_ids_in_tool_results(messages: list[AnyMessage], limit: int) -> list[ScoutCandidate]:
     """Deterministic fallback: repo ids that literally appear in tool output, in order.
 
-    Safe because every candidate is verified against the Hub by the checker afterwards.
+    Safe because every candidate is verified against the Hub afterwards.
     """
-    found: list[ScoutCandidate] = []
-    seen: set[str] = set()
-    for msg in messages:
-        if not isinstance(msg, ToolMessage):
-            continue
-        for match in _REPO_ID.findall(str(msg.content)):
-            key = match.strip(".").lower()
-            if key in seen or any(bad in key for bad in _NOT_REPOS):
-                continue
-            seen.add(key)
-            found.append(
-                ScoutCandidate(repo_id=match.strip("."), why="found in Hub search results")
-            )
-            if len(found) >= limit:
-                return found
-    return found
+    text = "\n".join(str(m.content) for m in messages if isinstance(m, ToolMessage))
+    return [
+        ScoutCandidate(repo_id=repo, why="found in Hub search results")
+        for repo in repo_ids_in_text(text)[:limit]
+    ]
 
 
 def _truncate(content: Any) -> str:
-    text = content if isinstance(content, str) else str(content)
+    text = tool_text(content)
     return text if len(text) <= MAX_TOOL_CHARS else text[:MAX_TOOL_CHARS] + "\n...[truncated]"
 
 
@@ -96,12 +116,18 @@ async def grounded_search(
     return messages
 
 
-def make_scout_node(deps: Deps) -> Any:
+def make_model_scout_node(deps: Deps) -> Any:
     policy = deps.settings.policy
 
     async def scout(state: HubScoutState, config: RunnableConfig) -> dict[str, Any]:
         constraints, plan = state["constraints"], state["plan"]
-        tools = await deps.load_tools()
+        errors: list[str] = []
+        try:
+            tools = await deps.load_tools()
+        except Exception as exc:  # MCP server unreachable: continue without tools
+            logger.warning("HF MCP tools unavailable: %s", exc)
+            errors.append(f"HF MCP unavailable ({type(exc).__name__})")
+            tools = []
         by_name = {tool.name: tool for tool in tools}
         hw = "CPU only" if constraints.cpu_only else f"{constraints.gpu_vram_gb} GB GPU"
         brief = (
@@ -117,7 +143,6 @@ def make_scout_node(deps: Deps) -> Any:
         recorder = ModelUsageRecorder()
         agent = deps.llm("cheap", tools=tools).with_config(callbacks=[recorder])
 
-        errors: list[str] = []
         for _ in range(policy.scout_max_tool_rounds):
             try:
                 reply = await agent.ainvoke(messages, config)
@@ -133,7 +158,8 @@ def make_scout_node(deps: Deps) -> Any:
             for call in reply.tool_calls:
                 messages.append(await _run_tool(by_name, dict(call)))
 
-        if not repo_ids_in_tool_results(messages, 1):
+        # Too few candidates (narrow queries): widen with a grounded search by downloads.
+        if len(repo_ids_in_tool_results(messages, MIN_CANDIDATES)) < MIN_CANDIDATES:
             messages.extend(await grounded_search(by_name, plan.hf_task, constraints.languages))
 
         ask = HumanMessage(prompts.SCOUT_REPORT.format(max_candidates=policy.max_candidates))
@@ -159,7 +185,7 @@ def make_scout_node(deps: Deps) -> Any:
                 candidates.append(cand.model_copy(update={"repo_id": key}))
         return {
             "scout_messages": messages[1:],  # skip the long system prompt
-            "candidates": candidates[: policy.max_candidates],
+            "model_candidates": candidates[: policy.max_candidates],
             "models_used": recorder.models,
             "errors": errors,
         }

@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 Precision = Literal["fp32", "fp16", "bf16", "int8", "int4"]
+ItemKind = Literal["model", "dataset", "method"]
 
 
 class Source(BaseModel):
@@ -49,9 +50,75 @@ class OpenWeightCandidate(BaseModel):
     reasons: list[str]
     notes: list[str] = Field(default_factory=list)
     sources: list[Source]
+    last_modified: datetime | None = None
+    # Relationships recorded on the Hub (model card tags), used to connect the kit.
+    trained_on: list[str] = Field(default_factory=list, description="dataset ids")
+    papers: list[str] = Field(default_factory=list, description="arXiv ids")
+
+    @property
+    def url(self) -> str:
+        return f"https://huggingface.co/{self.repo_id}"
+
+
+class DatasetPick(BaseModel):
+    """A verified dataset. Every field is read from the Hub or its dataset viewer."""
+
+    repo_id: str
+    licence: str
+    downloads: int
+    num_rows: int | None
+    config: str | None = None
+    splits: list[str]
+    features: list[str]
+    sample_rows: list[dict[str, str]] = Field(default_factory=list, max_length=3)
+    languages: list[str] = Field(default_factory=list)
+    last_modified: datetime | None = None
+    score: float = Field(ge=0, le=1)
+    why: str
+    notes: list[str] = Field(default_factory=list)
+    used_by: list[str] = Field(default_factory=list, description="chosen models trained on it")
+    retrieved_at: datetime
+
+    @property
+    def url(self) -> str:
+        return f"https://huggingface.co/datasets/{self.repo_id}"
+
+
+class MethodCandidate(BaseModel):
+    """A paper, guide or repo found by the method scout (unverified)."""
+
+    title: str
+    url: str
+    kind: Literal["paper", "guide", "repo"]
+    source: Literal["arxiv", "web", "hub-metadata"]
+    snippet: str = ""
+    arxiv_id: str | None = None
+    published: str | None = None
+
+
+class MethodPick(BaseModel):
+    """A verified method resource: the link resolved (and the arXiv id exists, for papers)."""
+
+    title: str
+    url: str
+    kind: Literal["paper", "guide", "repo"]
+    source: Literal["arxiv", "web", "hub-metadata"]
+    why: str
+    arxiv_id: str | None = None
+    published: str | None = None
+    describes: list[str] = Field(default_factory=list, description="chosen models it describes")
+    retrieved_at: datetime
+
+
+class MethodSelection(BaseModel):
+    """LLM output: which of the numbered method results to keep, best first."""
+
+    picks: list[int] = Field(max_length=8, description="Indices from the numbered list")
+    reasons: list[str] = Field(description="One short reason per pick, same order")
 
 
 class RejectedCandidate(BaseModel):
     repo_id: str
     reasons: list[str]
     stage: Literal["existence", "constraints"]
+    kind: ItemKind = "model"

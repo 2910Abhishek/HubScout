@@ -23,7 +23,6 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ENV_FILES: tuple[Path, ...] = (PROJECT_ROOT / ".env.infra", PROJECT_ROOT / ".env")
 
-DeploymentModeSetting = Literal["ask", "api", "open_weight", "compare"]
 LlmTier = Literal["strong", "cheap", "judge"]
 
 
@@ -112,6 +111,7 @@ class DataSourceSettings(_Group):
     github_token: SecretStr | None = None
     github_api_url: str = "https://api.github.com"
     pypi_base_url: str = "https://pypi.org/pypi"
+    hf_datasets_server_url: str = "https://datasets-server.huggingface.co"
     arxiv_api_url: str = "https://export.arxiv.org/api/query"
     http_timeout_s: float = Field(default=30.0, gt=0)
 
@@ -129,6 +129,7 @@ class SearchSettings(_Group):
     tavily_base_url: str = "https://api.tavily.com"
     tavily_search_depth: Literal["basic", "advanced"] = "basic"
     tavily_max_results: int = Field(default=5, gt=0, le=20)
+    arxiv_max_results: int = Field(default=5, gt=0, le=20)
     searxng_url: str = "http://localhost:8888"
 
 
@@ -198,19 +199,25 @@ class PolicySettings(_Group):
     licence_allowlist: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["apache-2.0", "mit", "bsd-2-clause", "bsd-3-clause"]
     )
-    default_deployment_mode: DeploymentModeSetting = "ask"
     max_critic_loops: int = Field(default=2, ge=0, le=5)
     scout_concurrency: int = Field(default=3, gt=0)
     # Clarify/plan loops: how many times the graph may re-ask before using defaults.
     max_clarify_rounds: int = Field(default=2, ge=0, le=5)
     max_plan_revisions: int = Field(default=2, ge=0, le=5)
     # Open-weight scout: tool-calling rounds with the HF MCP server, and candidates kept.
-    scout_max_tool_rounds: int = Field(default=4, gt=0, le=10)
+    scout_max_tool_rounds: int = Field(default=3, gt=0, le=10)
     max_candidates: int = Field(default=5, gt=0, le=10)
     # VRAM estimate = params x bytes-per-param x overhead (activations, KV cache, runtime).
     vram_overhead_factor: float = Field(default=1.2, ge=1.0)
     # CPU-only users: largest model footprint (GB) considered practical in system RAM.
     cpu_max_model_gb: float = Field(default=16.0, gt=0)
+    # Starter kit: items per section (the card caps sections at 5, 15 links in total).
+    kit_items_per_section: int = Field(default=5, gt=0, le=5)
+    # Candidates gathered per section before verification (verification is cheap code).
+    max_dataset_candidates: int = Field(default=10, gt=0, le=30)
+    max_method_candidates: int = Field(default=12, gt=0, le=30)
+    # Where rendered README starter kits are written (git-ignored); empty disables saving.
+    output_dir: str = "outputs"
 
     @field_validator("licence_allowlist", mode="before")
     @classmethod

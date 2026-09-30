@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 _TAG = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
@@ -20,6 +20,17 @@ class ResearchPlan(BaseModel):
     steps: list[str] = Field(
         min_length=1, max_length=6, description="What HubScout will do, in plain language"
     )
+    dataset_queries: list[str] = Field(
+        default_factory=list,
+        max_length=3,
+        description="Short Hub dataset search queries (1-3 words), e.g. 'hindi speech'",
+    )
+    method_queries: list[str] = Field(
+        default_factory=list,
+        max_length=3,
+        description="Paper/web queries for methods and approaches, e.g. "
+        "'fine-tuning whisper code-switching'",
+    )
     selection_criteria: list[str] = Field(
         default_factory=list, max_length=6, description="What makes a candidate good"
     )
@@ -31,6 +42,15 @@ class ResearchPlan(BaseModel):
         if not _TAG.match(value):
             raise ValueError(f"not a Hub pipeline tag: {value!r}")
         return value
+
+    @model_validator(mode="after")
+    def _fill_queries(self) -> ResearchPlan:
+        """Small models sometimes omit the extra query lists: fall back to the model queries."""
+        if not self.dataset_queries:
+            self.dataset_queries = self.search_queries[:2]
+        if not self.method_queries:
+            self.method_queries = self.search_queries[:2]
+        return self
 
 
 class PlanReview(BaseModel):

@@ -1,4 +1,4 @@
-"""Clarifier: extract constraints, ask only what is missing, always settle deployment mode.
+"""Clarifier: extract constraints and ask only what is missing (licence use, task, hardware).
 
 Two nodes so that resuming an interrupt never re-runs an LLM call:
 - `clarify` (LLM) extracts a draft and decides, in code, which questions are still needed.
@@ -20,7 +20,6 @@ from app.graph.state import HubScoutState, as_text, ask_until_answered
 from app.graph.usage import ModelUsageRecorder
 from app.schemas import ConstraintDraft, Constraints
 
-Q_MODE = "How do you want to run the model: hosted API, self-hosted open-weight, or compare both?"
 Q_COMMERCIAL = "Is this for commercial use (yes/no)?"
 Q_TASK = "Is the task about text, speech, or vision?"
 Q_HARDWARE = "What hardware will run the model? For example '16 GB GPU' or 'CPU only'."
@@ -43,29 +42,20 @@ def infer_task_family(text: str) -> str | None:
 
 
 def missing_questions(draft: ConstraintDraft) -> list[str]:
-    """Deterministic: which required facts are still unknown (at most one round of 1-4)."""
+    """Deterministic: which required facts are still unknown (at most one round of 1-3)."""
     questions: list[str] = []
-    if draft.deployment_mode is None:
-        questions.append(Q_MODE)
     if draft.commercial_use is None:
         questions.append(Q_COMMERCIAL)
     if draft.task_family is None:
         questions.append(Q_TASK)
-    needs_hw = draft.deployment_mode in (None, "open_weight", "compare")
-    if needs_hw and draft.gpu_vram_gb is None and not draft.cpu_only:
+    if draft.gpu_vram_gb is None and not draft.cpu_only:
         questions.append(Q_HARDWARE)
     return questions
 
 
-def finalize(
-    draft: ConstraintDraft, request: str, default_mode: str
-) -> tuple[Constraints, list[str]]:
+def finalize(draft: ConstraintDraft, request: str) -> tuple[Constraints, list[str]]:
     """Fill anything still missing with conservative defaults and say so."""
     assumptions: list[str] = []
-    mode = draft.deployment_mode
-    if mode is None:
-        mode = "open_weight" if default_mode == "ask" else default_mode  # type: ignore[assignment]
-        assumptions.append(f"deployment mode not given; assumed '{mode}'")
     commercial = draft.commercial_use
     if commercial is None:
         commercial = True
@@ -75,13 +65,12 @@ def finalize(
         family = "text"
         assumptions.append("task family unclear; assumed text")
     cpu_only = bool(draft.cpu_only)
-    if mode != "api" and draft.gpu_vram_gb is None and not cpu_only:
+    if draft.gpu_vram_gb is None and not cpu_only:
         cpu_only = True
         assumptions.append("hardware not given; assumed CPU only")
     constraints = Constraints(
         task_family=family,
         task_description=draft.task_description or request,
-        deployment_mode=mode,  # type: ignore[arg-type]
         commercial_use=commercial,
         languages=draft.languages,
         gpu_vram_gb=None if cpu_only else draft.gpu_vram_gb,
@@ -116,9 +105,7 @@ def make_clarify_node(deps: Deps) -> Any:
         update: dict[str, Any] = {"draft": draft, "models_used": recorder.models}
         if questions and rounds < deps.settings.policy.max_clarify_rounds:
             return {**update, "pending_questions": questions}
-        constraints, assumptions = finalize(
-            draft, state["request"], deps.settings.policy.default_deployment_mode
-        )
+        constraints, assumptions = finalize(draft, state["request"])
         return {
             **update,
             "pending_questions": [],
