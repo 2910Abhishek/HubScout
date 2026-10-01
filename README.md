@@ -5,6 +5,7 @@ constraints, researches the Hugging Face Hub through the official HF MCP server,
 candidate **in code** (existence, licence, VRAM, task, language), and returns a sourced
 blueprint. Built with LangGraph, OpenRouter free models (Ollama fallback), and Pydantic.
 
+Commands: [COMMANDS.md](COMMANDS.md) ·
 Full specification: [docs/HubScout_Project_Card.md](docs/HubScout_Project_Card.md) ·
 Progress: [docs/PROGRESS.md](docs/PROGRESS.md)
 
