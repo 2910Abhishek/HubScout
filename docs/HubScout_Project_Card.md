@@ -7,7 +7,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.1 (honest status as of 2026-10-06) |
+| Version | 1.2 (honest status as of 2026-10-06; §13.1 lists planned output-quality changes) |
 | Status | **Working proof of concept.** Full pipeline verified live end to end; runs locally |
 | Scope | Text, speech and vision tasks; self-hosted (open-weight) models from the Hugging Face Hub |
 | Output | A Markdown README "starter kit" (≤ 5 models, ≤ 5 datasets, ≤ 5 methods, ≤ 15 links) |
@@ -263,6 +263,22 @@ Empty placeholder packages for deferred work (`verifier/`, `mcp_servers/`, `ui/`
 
 ## 13. Next steps (not built yet)
 
+### 13.1 Planned: output quality (v1.2)
+
+The section limits stay (at most 5 each), but the aim becomes **fewer, better, different
+items**. Reviewing the real output (§2) showed four problems, each with a planned fix:
+
+| Problem seen in real output | Planned fix |
+|---|---|
+| **Models repeat:** 3 of 5 were variants of one model family from one author; no well-known baseline to compare against | At most 1 model per author / base family; always include 1 strong, widely used baseline, then the best specialised fine-tunes (3–5 in total) |
+| **Datasets thin:** only 2 shown; many good speech datasets hidden because they are gated or have no viewer | Gated or viewer-less datasets that exist are listed under **"Needs access"** (verified, with a note) instead of being hidden; aim for 2–4 directly usable ones |
+| **Methods mixed:** an off-topic paper (Singapore ASR) came in through a model card link; no practical guide or code | Fixed roles: 1 foundational paper, 1 recent method, 1 practical fine-tuning guide, 1 code repository; linked papers must also match the task and language |
+| **Weak "why" text:** raw search labels and paper abstracts instead of reasons | One short, specific reason per item, written from verified facts (licence, size, trained-on, downloads); never a raw snippet |
+
+Expected cost: about one extra LLM call per run (for the reasons); the rest is code.
+
+### 13.2 Later
+
 1. Unit tests for the untested modules (§9) and live integration tests.
 2. Code review, merge to `main`, tag, and push (with your approval).
 3. **Benchmark against a search-enabled assistant** (dead links, invented IDs, constraint
@@ -301,3 +317,4 @@ verifier over A2A); critic loop; long-term memory; hybrid retrieval; custom MCP 
 | 0.4 | 2026-09-27 | Semantic Scholar dropped (keyless API is rate-limited to unusable; keys require an institutional affiliation); paper scout uses arXiv + HF Papers. Tavily added as the primary web-search backend with self-hosted SearXNG as fallback |
 | 1.0 | 2026-09-29 | Scope reduced to a verified ML starter kit: one README with ≤5 models, ≤5 datasets and ≤5 methods (≤15 links), every link verified and every pick checked against the user's constraints. Added evidence-backed problem statement, differentiators (connected kit, verified links, fit not fame, rejections shown, dataset previews, honest gaps, quick start, measured against a search-enabled baseline), StarterKit schema and README format. Deferred: API/cost path, ADK verifier over A2A and sandbox runs, critic loop, memory, hybrid retrieval, custom MCP servers. Status markers added for what is built vs planned |
 | 1.1 | 2026-10-06 | Rewritten to describe only what is built and verified: actual pipeline and nodes, implemented verification rules, reliability fixes from live runs, real example output, honest test coverage, limitations, and a separate list of what is not built |
+| 1.2 | 2026-10-06 | Added planned output-quality changes (§13.1): diverse models with a baseline, "Needs access" datasets, role-based methods, fact-based reasons. Not built yet |
