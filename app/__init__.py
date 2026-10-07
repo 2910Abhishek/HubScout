@@ -1,0 +1,1 @@
+"""HubScout application package."""

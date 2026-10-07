@@ -1,0 +1,9 @@
+{
+  "$schema": "https://langgra.ph/schema.json",
+  "python_version": "3.12",
+  "dependencies": ["."],
+  "graphs": {
+    "hubscout": "./app/graph/build.py:make_graph"
+  },
+  "env": ".env"
+}

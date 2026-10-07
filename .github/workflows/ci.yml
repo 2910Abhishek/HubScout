@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+
+      - name: Install Python and dependencies (locked)
+        run: |
+          uv python install 3.12
+          uv sync --frozen
+
+      - name: Lint and format check
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Type check (strict)
+        run: uv run mypy app
+
+      - name: Unit tests (no network; integration tests are excluded)
+        run: uv run pytest
+
+      - name: Dependency audit
+        run: uv run pip-audit --skip-editable
+
+      - name: Security lint
+        run: uv run bandit -q -c pyproject.toml -r app mcp_servers verifier
