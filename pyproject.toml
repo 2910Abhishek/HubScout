@@ -1,7 +1,7 @@
 [project]
 name = "hubscout"
 version = "0.1.0"
-description = "Multi-agent ML project architect: researched, constraint-checked and verified model/dataset/tooling blueprints."
+description = "LangGraph agent that builds a verified ML starter kit: models, datasets and methods checked in code."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = "MIT"
